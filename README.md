@@ -1,21 +1,37 @@
 # Page-first editor
 
-A reviewable plan for an editor whose pages live in Google Docs. The author changes words, images, and layout on a preview. Commit writes those changes back into the Doc. Publish renders the last committed revision to static files and uploads them to Cloudflare.
+Edit a page, commit it to a Google Doc, and publish a static snapshot.
 
-Google is the only sign-in. A person can edit a page when Google says they can edit that Doc.
-
-This site is the plan itself. The editor is specified in [PLAN.md](./PLAN.md) and has not been built yet.
-
-## Run locally
+## Run
 
 ```bash
 npm install
 npm run dev
 ```
 
-The dev server listens on port 3847. Open [http://127.0.0.1:3847](http://127.0.0.1:3847).
+`npm run dev` starts Next.js on port 3847 at 127.0.0.1. Open [http://127.0.0.1:3847](http://127.0.0.1:3847).
 
 ```bash
-npm run build
-npm start
+npm test
 ```
+
+## Sample mode
+
+Sample mode works with no credentials. The home page lists sample pages until Google is connected.
+
+## Environment
+
+The server reads these variables:
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
+Set them in the server environment. This repository does not include values for them.
+
+Register the Google redirect URI as the site origin plus `/api/auth/callback`. The production URI is `https://page-first.apps.grok.bot/api/auth/callback`. On the local dev server that is `http://127.0.0.1:3847/api/auth/callback`.
+
+## Plan
+
+`/plan` still holds the written plan.

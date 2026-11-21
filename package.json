@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack -p 3847 -H 127.0.0.1",
     "build": "next build --turbopack",
     "start": "next start -p 3847 -H 127.0.0.1",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsx --test lib/page/*.test.ts lib/google/*.test.ts"
   },
   "dependencies": {
     "react": "19.1.0",
@@ -22,6 +23,7 @@
     "tailwindcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.5.29",
-    "@eslint/eslintrc": "^3"
+    "@eslint/eslintrc": "^3",
+    "tsx": "^4.23.15"
   }
 }

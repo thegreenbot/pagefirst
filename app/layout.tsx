@@ -17,7 +17,7 @@ const newsreader = Newsreader({
 export const metadata: Metadata = {
   title: "Page-first editor",
   description:
-    "Implementation plan: edit a page in preview, commit the changes into a Google Doc, and publish a static snapshot to Cloudflare.",
+    "Edit a page, commit it to a Google Doc, and publish a static snapshot.",
 };
 
 export default function RootLayout({
