@@ -33,6 +33,10 @@ Set them in the server environment. This repository does not include values for 
 
 Register the Google redirect URI as the site origin plus `/api/auth/callback`. The production URI is `https://page-first.apps.grok.bot/api/auth/callback`. On the local dev server that is `http://127.0.0.1:3847/api/auth/callback`.
 
+## Branches
+
+`develop` is where features merge. Releases are `release/vX.Y.Z` branches merged into `main` and tagged `vX.Y.Z`. The rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Plan
 
 `/plan` still holds the written plan.

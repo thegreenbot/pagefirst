@@ -1,0 +1,4 @@
+#!/bin/sh
+# Blocks pushes that skip git-flow. See CONTRIBUTING.md.
+root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd) || exit 1
+exec node "$root/scripts/git-flow-push.mjs"

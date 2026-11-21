@@ -7,7 +7,8 @@
     "build": "next build --turbopack",
     "start": "next start -p 3847 -H 127.0.0.1",
     "lint": "eslint",
-    "test": "tsx --test lib/page/*.test.ts lib/google/*.test.ts"
+    "test": "tsx --test lib/page/*.test.ts lib/google/*.test.ts && node --test scripts/git-flow.test.mjs",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "react": "19.1.0",
