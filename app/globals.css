@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f4f0e6;
+  --paper-2: #ebe4d6;
+  --ink: #1c1915;
+  --ink-soft: #4a453c;
+  --rule: #d9d0c0;
+  --green: #1a4738;
+  --green-soft: #e4efe9;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-rule: var(--rule);
+  --color-green: var(--green);
+  --color-green-soft: var(--green-soft);
+  --font-sans: var(--font-public);
+  --font-serif: var(--font-newsreader);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-public), "Public Sans", sans-serif;
+}
+
+::selection {
+  background: #c9ddd3;
+}
