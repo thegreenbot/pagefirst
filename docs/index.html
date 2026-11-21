@@ -65,26 +65,53 @@ section{padding:72px 0;border-top:1px solid var(--line)}
 .card h3{font-size:1.25rem;margin-bottom:8px}
 .docmock{font:13px/1.5 ui-monospace,Menlo,monospace;background:var(--doc-soft);border-radius:8px;padding:12px;margin-top:12px;white-space:pre;overflow:auto;color:var(--ink)}
 /* demo */
-.demo{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:28px}
-@media(max-width:900px){.demo{grid-template-columns:1fr}}
-.pane{background:var(--card);border:1.5px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
-.pane header{padding:10px 14px;font:600 .72rem ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
-.pane.p1 header{background:var(--draft-soft);color:var(--draft)}
-.pane.p2 header{background:var(--doc-soft);color:var(--doc)}
-.pane.p3 header{background:var(--cf-soft);color:var(--cf)}
-.pane .body{padding:18px;flex:1;min-height:210px}
-.pane .body h4{font:700 1.5rem/1.15 Georgia,serif;margin:0 0 8px;outline:none}
-.pane .body h4[contenteditable]{border-bottom:2px dashed var(--draft);cursor:text}
-.pane .body p{margin:0;font-size:.95rem;color:var(--muted)}
-.pane .body p[contenteditable]{outline:none;border-bottom:2px dashed var(--draft);cursor:text}
-.pane footer{padding:10px 14px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.8rem;color:var(--muted)}
-.pane footer .btn{padding:7px 14px;font-size:.85rem}
-.pane .btn[disabled]{opacity:.35;cursor:not-allowed}
-.dirty{color:var(--draft);font-weight:600}
+.demo{display:grid;grid-template-columns:1fr 1fr;gap:28px 20px;margin-top:28px}
+.demo .full{grid-column:1/-1}
+@media(max-width:760px){.demo{grid-template-columns:1fr}}
+.lbl{display:flex;justify-content:space-between;align-items:baseline;font:600 .72rem ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;color:var(--muted)}
+.lbl b{color:var(--ink)}
+.lbl.l1 b{color:var(--draft)} .lbl.l2 b{color:var(--doc)} .lbl.l3 b{color:var(--cf)}
+.browser{border:1.5px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 10px 30px rgba(0,0,0,.08)}
+.browser.edit{border-color:var(--draft)} .browser.live{border-color:var(--cf)}
+.bar{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--line);min-width:0}
+.dots{display:flex;gap:6px;flex:none}.dots i{width:10px;height:10px;border-radius:50%;background:var(--muted);opacity:.45}
+.url{flex:1;min-width:0;background:var(--bg);border-radius:6px;padding:4px 10px;font:12px ui-monospace,monospace;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar .btn{padding:5px 14px;font-size:.8rem;flex:none}
+.bar .btn[disabled]{opacity:.35;cursor:not-allowed}
+.state{font:600 .72rem ui-monospace,monospace;color:var(--muted);white-space:nowrap;flex:none}
+.dirty{color:var(--draft)}
+.editorbar{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--draft-soft);color:var(--draft);font:600 .72rem ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase}
+.editorbar span:last-child{margin-left:auto}
+/* the fake site has its own fixed look */
+.site{background:#fffdf9;color:#2a1f17;font-family:Georgia,serif}
+.site nav{display:flex;align-items:center;gap:22px;padding:14px 22px;border-bottom:1px solid #eadfd2;font:600 .8rem system-ui,sans-serif;color:#6b5646}
+.site nav b{font:700 1.15rem Georgia,serif;color:#2a1f17;margin-right:auto;letter-spacing:-.01em}
+.site .hero2{padding:44px 22px 40px;background:linear-gradient(120deg,#3b2618,#7a4a2b 70%,#b87a45);color:#fff8ee}
+.site .hero2 h1{font:700 clamp(1.7rem,4.6vw,2.7rem)/1.1 Georgia,serif;letter-spacing:-.02em;margin:0 0 10px;max-width:16em;outline:none}
+.site .hero2 p{margin:0 0 18px;font:1rem/1.5 system-ui,sans-serif;max-width:30em;color:#f1dcc4;outline:none}
+.site .cta{display:inline-block;background:#fff8ee;color:#3b2618;padding:9px 18px;border-radius:99px;font:700 .82rem system-ui,sans-serif}
+.site .feat{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:22px}
+.site .feat div{border:1px solid #eadfd2;border-radius:8px;padding:12px;font:.8rem/1.4 system-ui,sans-serif;color:#6b5646}
+.site .feat b{display:block;font:700 .95rem Georgia,serif;color:#2a1f17;margin-bottom:2px}
+.site .fine{padding:12px 22px;border-top:1px solid #eadfd2;font:.72rem system-ui,sans-serif;color:#9a8672}
+.edit .site .hero2 h1[contenteditable],.edit .site .hero2 p[contenteditable]{cursor:text;border-radius:3px;box-shadow:0 0 0 2px #b8a4ff;padding:2px 6px;margin-left:-6px}
+.edit .site [contenteditable]:focus{box-shadow:0 0 0 2px #7c5cff;background:rgba(124,92,255,.18)}
+.live .site .hero2 h1{font-size:clamp(1.3rem,3vw,1.7rem)}
+.live .site .feat,.live .site nav span:nth-child(n+4){display:none}
+.live .site .hero2{padding:26px 22px}
+.gdoc{border:1.5px solid var(--doc);border-radius:12px;overflow:hidden;background:var(--doc-soft)}
+.gdoc .tb{display:flex;align-items:center;gap:10px;padding:9px 12px;font:600 .8rem system-ui,sans-serif;color:var(--doc)}
+.gdoc .tb i{width:16px;height:20px;background:var(--doc);border-radius:2px;flex:none}
+.gdoc .tb span:last-child{margin-left:auto;font:600 .72rem ui-monospace,monospace}
+.paper{background:#fff;color:#202124;margin:0 14px 14px;padding:22px;border-radius:4px;min-height:215px;font:.95rem/1.55 Arial,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.paper h4{font:400 1.7rem/1.2 Arial,sans-serif;margin:0 0 8px}
+.paper table{border-collapse:collapse;margin-top:14px;font-size:.82rem;width:100%}
+.paper td{border:1px solid #bdc1c6;padding:5px 9px}.paper td:first-child{background:#f1f3f4;font-weight:700;width:34%}
 .flash{animation:flash .7s}
-@keyframes flash{from{background:var(--doc-soft)}to{background:transparent}}
+@keyframes flash{from{outline:3px solid #f6821f;outline-offset:-3px}to{outline:3px solid transparent;outline-offset:-3px}}
 .note{color:var(--muted);font-size:.9rem;margin-top:14px}
 .badge{display:inline-block;font:600 .72rem ui-monospace,monospace;padding:4px 10px;border:1px solid var(--line);border-radius:99px;color:var(--muted);margin-left:8px;vertical-align:middle}
+@media(max-width:520px){.site nav span{display:none}.site .feat{grid-template-columns:1fr}.url{display:none}}
 /* steps */
 ol.steps{list-style:none;counter-reset:s;padding:0;margin:28px 0 0;display:grid;gap:14px}
 ol.steps li{counter-increment:s;display:grid;grid-template-columns:48px 1fr;gap:14px;padding:16px 18px;background:var(--card);border:1px solid var(--line);border-radius:12px}
@@ -99,7 +126,7 @@ pre code{background:none;padding:0}
 .branch{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:20px;font:600 .9rem ui-monospace,monospace}
 .branch span{padding:7px 13px;border-radius:8px;background:var(--card);border:1px solid var(--line)}
 .branch b{color:var(--muted)}
-footer.site{padding:40px 0 60px;border-top:1px solid var(--line);color:var(--muted);font-size:.9rem}
+footer.pgfoot{padding:40px 0 60px;border-top:1px solid var(--line);color:var(--muted);font-size:.9rem}
 </style>
 </head>
 <body>
@@ -107,7 +134,7 @@ footer.site{padding:40px 0 60px;border-top:1px solid var(--line);color:var(--mut
 <header class="hero"><div class="wrap">
   <div class="eyebrow">Page-first editor · open source</div>
   <h1>Edit the page.<br>Own the <em>Doc.</em></h1>
-  <p class="lede">Authors edit something that looks like the real page. Nothing touches the source of truth until they commit &mdash; and a Google Doc stays canonical the whole way down.</p>
+  <p class="lede">Authors edit the real page as it appears on their live site. All changes are committed to Google Docs.</p>
   <div class="btns">
     <a class="btn primary" href="#demo">Try the demo</a>
     <a class="btn" href="https://github.com/thegreenbot/pagefirst">View on GitHub</a>
@@ -142,15 +169,15 @@ footer.site{padding:40px 0 60px;border-top:1px solid var(--line);color:var(--mut
   <h2>Two good ideas that never met.</h2>
   <div class="cols">
     <div class="card">
-      <h3>Doc-first <small style="font-weight:400;color:var(--muted)">(Adobe EDS)</small></h3>
-      <p>Write in a Google Doc. A pipeline renders it. Durable and collaborative &mdash; but authors can't see or edit the finished page.</p>
+      <h3>Doc-first</h3>
+      <p>Write in a Google Doc and let a pipeline render it. Durable and collaborative, but authors can't see or edit the finished page.</p>
       <div class="docmock">| Hero            |
 | title | Hello   |
 | image | (img)   |</div>
     </div>
     <div class="card">
-      <h3>Page-first <small style="font-weight:400;color:var(--muted)">(DA.live)</small></h3>
-      <p>Edit the rendered page directly. Great gesture &mdash; but the source of truth becomes HTML, not a Doc your team already lives in.</p>
+      <h3>Page-first</h3>
+      <p>Edit the rendered page directly. A great gesture, but the source of truth becomes HTML instead of a Doc your team already lives in.</p>
       <div class="docmock" style="background:var(--draft-soft)">&lt;h1 contenteditable&gt;
   Hello
 &lt;/h1&gt;</div>
@@ -162,25 +189,29 @@ footer.site{padding:40px 0 60px;border-top:1px solid var(--line);color:var(--mut
 <section id="demo"><div class="wrap">
   <div class="eyebrow">Interactive <span class="badge">sample mode · no credentials</span></div>
   <h2>Feel the flow.</h2>
-  <p class="lede">Edit the headline. Nothing else changes. Commit it to the Doc, then publish the snapshot.</p>
+  <p class="lede">Click the headline or subtitle on the site below and change it. Commit sends it to the Doc. Publish updates the live site.</p>
   <div class="demo">
-    <div class="pane p1">
-      <header><span>1 · Editor draft</span><span id="dirty"></span></header>
-      <div class="body">
-        <h4 id="h" contenteditable spellcheck="false">Hello, page-first</h4>
-        <p id="sub" contenteditable spellcheck="false">Click and type. This is only a draft.</p>
+    <div class="full">
+      <div class="lbl l1"><b>1 · Edit the page</b><span>Draft, not saved</span></div>
+      <div class="browser edit">
+        <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">larkspur.example/ &mdash; editing</div><span class="state" id="dirty"></span><button class="btn primary" id="commit" disabled>Commit</button></div>
+        <div id="edsite"></div>
       </div>
-      <footer><span>Draft only</span><button class="btn primary" id="commit" disabled>Commit</button></footer>
     </div>
-    <div class="pane p2">
-      <header><span>2 · Google Doc</span><span id="rev">rev 1</span></header>
-      <div class="body" id="doc"></div>
-      <footer><span id="docstat">Canonical</span><button class="btn primary" id="publish">Publish</button></footer>
+    <div>
+      <div class="lbl l2"><b>2 · Google Doc</b><span id="rev">rev 1</span></div>
+      <div class="gdoc">
+        <div class="tb"><i></i><span>Larkspur &mdash; home</span><span>canonical</span></div>
+        <div class="paper" id="doc"></div>
+      </div>
+      <p style="margin:12px 0 0"><button class="btn primary" id="publish">Publish</button></p>
     </div>
-    <div class="pane p3">
-      <header><span>3 · Cloudflare</span><span id="live">snapshot of rev 1</span></header>
-      <div class="body" id="site"></div>
-      <footer><span>Static, public</span><span id="url">pagefirst.example/</span></footer>
+    <div>
+      <div class="lbl l3"><b>3 · Live site</b><span id="live">snapshot of rev 1</span></div>
+      <div class="browser live">
+        <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://larkspur.example/</div></div>
+        <div id="site"></div>
+      </div>
     </div>
   </div>
   <p class="note">Notice: publish ships the <em>last committed</em> revision &mdash; never your unsaved draft.</p>
@@ -188,13 +219,13 @@ footer.site{padding:40px 0 60px;border-top:1px solid var(--line);color:var(--mut
 
 <section><div class="wrap">
   <div class="eyebrow">How it works</div>
-  <h2>One rule keeps it honest.</h2>
-  <p class="lede">Every feature speaks one intermediate page structure. The preview DOM is never saved, and never what gets published.</p>
+  <h2>Simplicity first.</h2>
+  <p class="lede">Preview every change exactly as visitors will see it, then publish with confidence.</p>
   <ol class="steps">
-    <li><div><b>Edit</b><span>The editor mutates the page structure in a local draft.</span></div></li>
-    <li><div><b>Commit</b><span>The structure is translated into Google Docs API requests.</span></div></li>
-    <li class="key"><div><b>Re-read</b><span>The server re-reads the Doc and returns the parsed page. The client discards its optimistic draft and renders that result &mdash; so editor and Doc can't drift.</span></div></li>
-    <li><div><b>Publish</b><span>The last committed revision is rendered to static files and uploaded to Cloudflare.</span></div></li>
+    <li><div><b>Edit</b><span>Change words, images and layout right on the page. Nothing is saved yet.</span></div></li>
+    <li><div><b>Commit</b><span>Your changes are pushed to the Google Doc through Google's own API.</span></div></li>
+    <li class="key"><div><b>Render</b><span>The server pulls the change back out of the Doc, then re-renders the page's HTML in its final state.</span></div></li>
+    <li><div><b>Publish</b><span>The finished HTML is uploaded to Cloudflare.</span></div></li>
   </ol>
   <pre><code><span class="c">// what a person sees if they open the Doc</span>
 type Page = {
@@ -217,37 +248,46 @@ npm test</code></pre>
   <p class="note">Pull requests run lint, unit tests and a security audit. Details in CONTRIBUTING.md.</p>
 </div></section>
 
-<footer class="site"><div class="wrap">Page-first editor · <a href="https://github.com/thegreenbot/pagefirst">github.com/thegreenbot/pagefirst</a></div></footer>
+<footer class="pgfoot"><div class="wrap">Page-first editor · <a href="https://github.com/thegreenbot/pagefirst">github.com/thegreenbot/pagefirst</a></div></footer>
 
 <script>
 (function(){
   var $=function(i){return document.getElementById(i)};
-  var h=$('h'),sub=$('sub'),commitB=$('commit'),pubB=$('publish');
-  var committed={t:h.textContent,s:sub.textContent,rev:1};
-  var published={t:committed.t,s:committed.s,rev:1};
-  function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+  function esc(x){var d=document.createElement('div');d.textContent=x;return d.innerHTML}
+  function site(t,sub,edit){
+    var ce=edit?' contenteditable spellcheck="false"':'';
+    return '<div class="site"><nav><b>Larkspur</b><span>Beans</span><span>Visit</span><span>About</span></nav>'+
+      '<div class="hero2"><h1'+(edit?' id="eh"':'')+ce+'>'+esc(t)+'</h1><p'+(edit?' id="es"':'')+ce+'>'+esc(sub)+'</p><span class="cta">Order beans</span></div>'+
+      '<div class="feat"><div><b>Single origin</b>Rotating lots from three farms.</div><div><b>Subscriptions</b>Fresh beans every two weeks.</div><div><b>Cafe hours</b>Daily, 7am to 4pm.</div></div>'+
+      '<div class="fine">&copy; Larkspur Coffee Roasters &middot; 12 Mill St</div></div>';
+  }
+  var T='Coffee roasted in small batches',S='Fresh beans from three farms, roasted every Tuesday.';
+  $('edsite').innerHTML=site(T,S,true);
+  var h=$('eh'),sub=$('es'),commitB=$('commit'),pubB=$('publish');
+  var committed={t:T,s:S,rev:1},published={t:T,s:S,rev:1};
+  function flash(el){el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash')}
   function renderDoc(){
-    $('doc').innerHTML='<h4>'+esc(committed.t)+'</h4><p>'+esc(committed.s)+'</p>';
-    $('rev').textContent='rev '+committed.rev;
-    $('doc').classList.remove('flash');void $('doc').offsetWidth;$('doc').classList.add('flash');
+    $('doc').innerHTML='<h4>'+esc(committed.t)+'</h4><div>'+esc(committed.s)+'</div>'+
+      '<table><tr><td>Hero button</td><td>Order beans</td></tr><tr><td>Section</td><td>Single origin, Subscriptions, Cafe hours</td></tr></table>';
+    $('rev').textContent='rev '+committed.rev;flash($('doc'));
   }
   function renderSite(){
-    $('site').innerHTML='<h4>'+esc(published.t)+'</h4><p>'+esc(published.s)+'</p>';
+    $('site').innerHTML=site(published.t,published.s,false);
     $('live').textContent='snapshot of rev '+published.rev;
-    $('site').classList.remove('flash');void $('site').offsetWidth;$('site').classList.add('flash');
-    pubB.disabled=true;
+    flash($('site'));pubB.disabled=true;
   }
   function check(){
     var dirty=h.textContent!==committed.t||sub.textContent!==committed.s;
     commitB.disabled=!dirty;
-    $('dirty').innerHTML=dirty?'<span class="dirty">● unsaved</span>':'';
+    $('dirty').innerHTML=dirty?'<span class="dirty">&#9679; unsaved</span>':'';
   }
-  h.addEventListener('input',check);sub.addEventListener('input',check);
-  [h,sub].forEach(function(e){e.addEventListener('keydown',function(ev){if(ev.key==='Enter')ev.preventDefault()})});
+  [h,sub].forEach(function(e){
+    e.addEventListener('input',check);
+    e.addEventListener('keydown',function(ev){if(ev.key==='Enter')ev.preventDefault()});
+  });
   commitB.addEventListener('click',function(){
     committed={t:h.textContent.trim()||'Untitled',s:sub.textContent.trim(),rev:committed.rev+1};
-    /* re-read: draft is replaced by what the Doc returned */
-    h.textContent=committed.t;sub.textContent=committed.s;
+    h.textContent=committed.t;sub.textContent=committed.s; /* draft replaced by what the Doc returned */
     renderDoc();check();pubB.disabled=false;
   });
   pubB.addEventListener('click',function(){
