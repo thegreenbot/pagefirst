@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 
 const PROJECT = "page-first";
 const API = "https://api.cloudflare.com/client/v4";
-const FALLBACK_URL = "https://page-first.pages.dev";
 
 function failed(status: number): Error {
   return new Error(`Cloudflare upload failed (${status})`);
@@ -29,10 +28,10 @@ function httpsUrl(value: unknown): string | null {
   return value;
 }
 
-function deploymentUrl(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return FALLBACK_URL;
+function deploymentUrl(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
   const result = (payload as { result?: unknown }).result;
-  if (!result || typeof result !== "object") return FALLBACK_URL;
+  if (!result || typeof result !== "object") return null;
   const record = result as { url?: unknown; aliases?: unknown };
   const direct = httpsUrl(record.url);
   if (direct) return direct;
@@ -40,7 +39,7 @@ function deploymentUrl(payload: unknown): string {
     const alias = httpsUrl(record.aliases[0]);
     if (alias) return alias;
   }
-  return FALLBACK_URL;
+  return null;
 }
 
 async function discard(response: Response): Promise<void> {

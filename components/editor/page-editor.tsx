@@ -165,6 +165,7 @@ export function PageEditor({ initial, sample }: { initial: Page; sample: boolean
   const committingRef = useRef(false);
   const publishingRef = useRef(false);
   const [published, setPublished] = useState<Published | null>(null);
+  const [publicCopy, setPublicCopy] = useState(false);
 
   modelRef.current = model;
   const dirty = model.pending.length > 0;
@@ -283,7 +284,7 @@ export function PageEditor({ initial, sample }: { initial: Page; sample: boolean
       const response = await fetch(`/api/pages/${current.draft.fileId}/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ public: publicCopy }),
       });
       const data = await readJson(response);
       if (
@@ -342,6 +343,15 @@ export function PageEditor({ initial, sample }: { initial: Page; sample: boolean
               >
                 Publish
               </button>
+              <label className="flex max-w-[16rem] items-start gap-2 text-xs leading-snug text-ink-soft">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={publicCopy}
+                  onChange={(event) => setPublicCopy(event.target.checked)}
+                />
+                Public copy. Anyone with the Cloudflare link can read it.
+              </label>
               {dirty ? (
                 <p className="mt-1 max-w-[16rem] text-xs leading-snug text-ink-soft">
                   Commit this draft, then publish.

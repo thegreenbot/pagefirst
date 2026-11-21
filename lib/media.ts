@@ -7,6 +7,8 @@ type MediaRecord = {
 
 const ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 const MAX_BYTES = 2_000_000;
+const MAX_UPLOADS = 24;
+const SEED_ID = "sample-studio";
 
 const STUDIO_SVG = [
   '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">',
@@ -50,6 +52,13 @@ function copyBytes(bytes: Uint8Array): Uint8Array {
 export function saveMedia(bytes: Uint8Array, mime: string): { id: string } {
   if (bytes.byteLength > MAX_BYTES) {
     throw new Error("Image is too large");
+  }
+  let uploads = 0;
+  for (const id of media.keys()) {
+    if (id !== SEED_ID) uploads += 1;
+  }
+  if (uploads >= MAX_UPLOADS) {
+    throw new Error("Image library is full");
   }
   let id = newMediaId();
   while (media.has(id)) id = newMediaId();

@@ -18,10 +18,14 @@ export async function GET(
     return NextResponse.json({ error: "Media not found" }, { status: 404 });
   }
 
-  return new NextResponse(Buffer.from(media.bytes), {
-    headers: {
-      "Content-Type": media.mime,
-      "Cache-Control": "private, max-age=3600",
-    },
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": media.mime,
+    "Cache-Control": "private, max-age=3600",
+    "X-Content-Type-Options": "nosniff",
+  };
+  if (media.mime === "image/svg+xml") {
+    headers["Content-Security-Policy"] = "default-src 'none'; script-src 'none'; sandbox";
+  }
+
+  return new NextResponse(Buffer.from(media.bytes), { headers });
 }
