@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const stores = [
   {
     name: "Google Doc",
@@ -185,13 +187,13 @@ export default function Home() {
       </a>
       <header className="sticky top-0 z-10 border-b border-rule bg-paper/95">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-3">
-          <a href="/" className="shrink-0 font-serif text-lg tracking-tight text-ink">
+          <Link href="/" className="shrink-0 font-serif text-lg tracking-tight text-ink">
             Page-first
-          </a>
+          </Link>
           <nav className="flex gap-4 overflow-x-auto text-sm text-ink-soft">
-            <a href="/" className="shrink-0 hover:text-ink">
+            <Link href="/" className="shrink-0 hover:text-ink">
               Pages
-            </a>
+            </Link>
             {nav.map(([label, href]) => (
               <a key={href} href={href} className="shrink-0 hover:text-ink">
                 {label}
