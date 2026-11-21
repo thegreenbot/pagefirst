@@ -25,12 +25,22 @@ Then open a pull request from `main` into `develop` so the release commit is on 
 
 Cut `hotfix/vX.Y.Z` from `main` for a production fix that should not wait for the rest of `develop`. Open it against `main`, tag the merge commit `vX.Y.Z`, then pull `main` back into `develop` the same way as a release.
 
-## Origin rules
+## Origin rules and PR CI
 
-Someone who can edit repository rules runs this once from a checkout:
+Direct pushes to `main` and `develop` are refused by the local pre-push hook after `npm install`. On the server, someone with a Cursor API key that can edit Origin rulesets applies either:
+
+```bash
+cd infra/git-flow
+export CURSOR_TOKEN=...   # Dashboard → Settings → API Keys
+terraform init && terraform apply
+```
+
+or:
 
 ```bash
 node scripts/install-origin-git-flow.mjs
 ```
 
-That applies the same names on the server, refuses direct pushes to `main` and `develop`, keeps tags immutable, and sets the default branch to `develop`.
+Terraform also creates the **page-first PR CI** automation, which runs `npm run ci` (lint, unit tests, and `npm audit`) when a pull request opens or gets new commits, posts a comment, and reports a check run. Without Terraform, create that automation at [cursor.com/automations](https://cursor.com/automations) from `automation/pr-ci-prompt.md`.
+
+`.github/workflows/ci.yml` runs the same `npm run ci` command if a CI app such as Depot or Buildkite is connected to the Origin repo.

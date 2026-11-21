@@ -35,7 +35,7 @@ Register the Google redirect URI as the site origin plus `/api/auth/callback`. T
 
 ## Branches
 
-`develop` is where features merge. Releases are `release/vX.Y.Z` branches merged into `main` and tagged `vX.Y.Z`. The rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
+`develop` is where features merge. Releases are `release/vX.Y.Z` branches merged into `main` and tagged `vX.Y.Z`. Direct pushes to `main` are blocked. Pull requests run lint, unit tests, and a security audit via `npm run ci`. The rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Plan
 
