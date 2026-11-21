@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { googleConfigured } from "@/lib/google/config";
+import { oauthOrigin } from "@/lib/google/origin";
 import { buildAuthUrl, createPkce } from "@/lib/google/oauth";
 import { setPkce } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
-  const origin = request.nextUrl.origin;
+  const origin = oauthOrigin(request);
   if (!googleConfigured()) {
     return NextResponse.redirect(new URL("/?google=unconfigured", origin));
   }

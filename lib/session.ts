@@ -1,4 +1,5 @@
 import { cookies, headers } from "next/headers";
+import { oauthOriginFromHeaders } from "@/lib/google/origin";
 
 const ACCESS_COOKIE = "pf_access";
 const VERIFIER_COOKIE = "pf_verifier";
@@ -12,13 +13,15 @@ async function cookieOptions(maxAge: number): Promise<{
   secure: boolean;
 }> {
   const headerList = await headers();
-  const proto = headerList.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const origin = oauthOriginFromHeaders(headerList);
   return {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
     maxAge,
-    secure: proto === "https",
+    // Host-only: no Domain. A Domain copied from the *.vercel.app request host
+    // is rejected by a browser on the public https app, so the session would not stick.
+    secure: origin.startsWith("https://"),
   };
 }
 

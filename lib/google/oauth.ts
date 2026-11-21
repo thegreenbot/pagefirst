@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { callbackUrl } from "@/lib/google/origin";
 
 const SCOPES = [
   "openid",
@@ -30,7 +31,7 @@ export function buildAuthUrl({
 }): string {
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", process.env.GOOGLE_CLIENT_ID ?? "");
-  url.searchParams.set("redirect_uri", `${origin}/api/auth/callback`);
+  url.searchParams.set("redirect_uri", callbackUrl(origin));
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", SCOPES.join(" "));
   url.searchParams.set("state", state);
@@ -52,7 +53,7 @@ export async function exchangeCode({
     code,
     client_id: process.env.GOOGLE_CLIENT_ID ?? "",
     client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-    redirect_uri: `${origin}/api/auth/callback`,
+    redirect_uri: callbackUrl(origin),
     grant_type: "authorization_code",
     code_verifier: verifier,
   });
