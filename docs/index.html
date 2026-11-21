@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page-first editor</title>
+<meta name="description" content="Edit the page. Own the Doc. A page-first editor with a Google Doc as the source of truth.">
+<style>
+:root{
+  --bg:#faf8f3; --ink:#1c1b19; --muted:#6b675f; --line:#e4dfd2; --card:#fff;
+  --doc:#1a73e8; --doc-soft:#e8f0fe; --cf:#f6821f; --cf-soft:#fff0e0; --draft:#7c5cff; --draft-soft:#efeaff;
+  --code:#16151a; --codeink:#e9e6f5;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#121210; --ink:#f1eee6; --muted:#a29d90; --line:#2b2a26; --card:#1b1a17;
+    --doc-soft:#14263f; --cf-soft:#3a2410; --draft-soft:#241d44; --code:#0b0b0e}
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+h1,h2,h3{font-family:Georgia,"Iowan Old Style","Times New Roman",serif;line-height:1.1;margin:0;font-weight:700;letter-spacing:-.02em}
+h1{font-size:clamp(2.6rem,7vw,5rem)}
+h2{font-size:clamp(1.8rem,4vw,2.6rem);margin-bottom:.4em}
+p{margin:.6em 0}
+a{color:var(--doc)}
+section{padding:72px 0;border-top:1px solid var(--line)}
+.eyebrow{font:600 .75rem/1 ui-monospace,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:18px}
+.lede{font-size:1.25rem;color:var(--muted);max-width:42em}
+/* hero */
+.hero{padding:88px 0 56px;border:0}
+.hero em{font-style:italic;color:var(--doc)}
+.btns{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}
+.btn{display:inline-block;padding:11px 20px;border-radius:999px;border:1px solid var(--ink);color:var(--ink);text-decoration:none;font-weight:600;font-size:.95rem;background:transparent;cursor:pointer;font-family:inherit}
+.btn.primary{background:var(--ink);color:var(--bg)}
+/* pipeline */
+.pipe{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;gap:0;margin-top:44px}
+.node{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:20px;position:relative}
+.node .tag{font:600 .7rem/1 ui-monospace,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase;padding:5px 9px;border-radius:99px;display:inline-block;margin-bottom:12px}
+.node h3{font-size:1.35rem;margin-bottom:6px}
+.node small{color:var(--muted);display:block;line-height:1.4}
+.node .writer{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);font-size:.85rem}
+.node .writer b{font-family:ui-monospace,Menlo,monospace}
+.n1 .tag{background:var(--draft-soft);color:var(--draft)} .n1{border-color:var(--draft)}
+.n2 .tag{background:var(--doc-soft);color:var(--doc)} .n2{border-color:var(--doc)}
+.n3 .tag{background:var(--cf-soft);color:var(--cf)} .n3{border-color:var(--cf)}
+.arrow{width:64px;position:relative;align-self:center;height:2px;background:var(--line)}
+.arrow::after{content:"";position:absolute;right:-1px;top:-4px;border:5px solid transparent;border-left:8px solid var(--line)}
+.arrow i{position:absolute;top:-4px;left:0;width:10px;height:10px;border-radius:50%;background:var(--doc);animation:pkt 2.4s linear infinite}
+.arrow.b i{background:var(--cf);animation-delay:1.2s}
+.arrow span{position:absolute;top:10px;left:50%;transform:translateX(-50%);font:600 .68rem ui-monospace,monospace;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+@keyframes pkt{from{left:0;opacity:0}15%{opacity:1}85%{opacity:1}to{left:calc(100% - 10px);opacity:0}}
+@media (prefers-reduced-motion:reduce){.arrow i{animation:none;left:calc(50% - 5px)}}
+@media(max-width:820px){
+  .pipe{grid-template-columns:1fr}
+  .arrow{width:2px;height:48px;margin:0 auto}
+  .arrow::after{right:-4px;top:auto;bottom:-1px;border:5px solid transparent;border-top:8px solid var(--line);border-left-color:transparent}
+  .arrow i{left:-4px;animation:none;top:20px}
+  .arrow span{left:14px;top:16px;transform:none}
+}
+/* two column */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:28px}
+@media(max-width:760px){.cols{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px}
+.card h3{font-size:1.25rem;margin-bottom:8px}
+.docmock{font:13px/1.5 ui-monospace,Menlo,monospace;background:var(--doc-soft);border-radius:8px;padding:12px;margin-top:12px;white-space:pre;overflow:auto;color:var(--ink)}
+/* demo */
+.demo{display:grid;grid-template-columns:1fr 1fr;gap:28px 20px;margin-top:28px}
+.demo .full{grid-column:1/-1}
+@media(max-width:760px){.demo{grid-template-columns:1fr}}
+.lbl{display:flex;justify-content:space-between;align-items:baseline;font:600 .72rem ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;color:var(--muted)}
+.lbl b{color:var(--ink)}
+.lbl.l1 b{color:var(--draft)} .lbl.l2 b{color:var(--doc)} .lbl.l3 b{color:var(--cf)}
+.browser{border:1.5px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 10px 30px rgba(0,0,0,.08)}
+.browser.edit{border-color:var(--draft)} .browser.live{border-color:var(--cf)}
+.bar{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--line);min-width:0}
+.dots{display:flex;gap:6px;flex:none}.dots i{width:10px;height:10px;border-radius:50%;background:var(--muted);opacity:.45}
+.url{flex:1;min-width:0;background:var(--bg);border-radius:6px;padding:4px 10px;font:12px ui-monospace,monospace;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar .btn{padding:5px 14px;font-size:.8rem;flex:none}
+.bar .btn[disabled]{opacity:.35;cursor:not-allowed}
+.state{font:600 .72rem ui-monospace,monospace;color:var(--muted);white-space:nowrap;flex:none}
+.dirty{color:var(--draft)}
+.editorbar{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--draft-soft);color:var(--draft);font:600 .72rem ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase}
+.editorbar span:last-child{margin-left:auto}
+/* the fake site has its own fixed look */
+.site{background:#fffdf9;color:#2a1f17;font-family:Georgia,serif}
+.site nav{display:flex;align-items:center;gap:22px;padding:14px 22px;border-bottom:1px solid #eadfd2;font:600 .8rem system-ui,sans-serif;color:#6b5646}
+.site nav b{font:700 1.15rem Georgia,serif;color:#2a1f17;margin-right:auto;letter-spacing:-.01em}
+.site .hero2{padding:44px 22px 40px;background:linear-gradient(120deg,#3b2618,#7a4a2b 70%,#b87a45);color:#fff8ee}
+.site .hero2 h1{font:700 clamp(1.7rem,4.6vw,2.7rem)/1.1 Georgia,serif;letter-spacing:-.02em;margin:0 0 10px;max-width:16em;outline:none}
+.site .hero2 p{margin:0 0 18px;font:1rem/1.5 system-ui,sans-serif;max-width:30em;color:#f1dcc4;outline:none}
+.site .cta{display:inline-block;background:#fff8ee;color:#3b2618;padding:9px 18px;border-radius:99px;font:700 .82rem system-ui,sans-serif}
+.site .feat{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:22px}
+.site .feat div{border:1px solid #eadfd2;border-radius:8px;padding:12px;font:.8rem/1.4 system-ui,sans-serif;color:#6b5646}
+.site .feat b{display:block;font:700 .95rem Georgia,serif;color:#2a1f17;margin-bottom:2px}
+.site .fine{padding:12px 22px;border-top:1px solid #eadfd2;font:.72rem system-ui,sans-serif;color:#9a8672}
+.edit .site .hero2 h1[contenteditable],.edit .site .hero2 p[contenteditable]{cursor:text;border-radius:3px;box-shadow:0 0 0 2px #b8a4ff;padding:2px 6px;margin-left:-6px}
+.edit .site [contenteditable]:focus{box-shadow:0 0 0 2px #7c5cff;background:rgba(124,92,255,.18)}
+.live .site .hero2 h1{font-size:clamp(1.3rem,3vw,1.7rem)}
+.live .site .feat,.live .site nav span:nth-child(n+4){display:none}
+.live .site .hero2{padding:26px 22px}
+.gdoc{border:1.5px solid var(--doc);border-radius:12px;overflow:hidden;background:var(--doc-soft)}
+.gdoc .tb{display:flex;align-items:center;gap:10px;padding:9px 12px;font:600 .8rem system-ui,sans-serif;color:var(--doc)}
+.gdoc .tb i{width:16px;height:20px;background:var(--doc);border-radius:2px;flex:none}
+.gdoc .tb span:last-child{margin-left:auto;font:600 .72rem ui-monospace,monospace}
+.paper{background:#fff;color:#202124;margin:0 14px 14px;padding:22px;border-radius:4px;min-height:215px;font:.95rem/1.55 Arial,sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.paper h4{font:400 1.7rem/1.2 Arial,sans-serif;margin:0 0 8px}
+.paper table{border-collapse:collapse;margin-top:14px;font-size:.82rem;width:100%}
+.paper td{border:1px solid #bdc1c6;padding:5px 9px}.paper td:first-child{background:#f1f3f4;font-weight:700;width:34%}
+.flash{animation:flash .7s}
+@keyframes flash{from{outline:3px solid #f6821f;outline-offset:-3px}to{outline:3px solid transparent;outline-offset:-3px}}
+.note{color:var(--muted);font-size:.9rem;margin-top:14px}
+.badge{display:inline-block;font:600 .72rem ui-monospace,monospace;padding:4px 10px;border:1px solid var(--line);border-radius:99px;color:var(--muted);margin-left:8px;vertical-align:middle}
+@media(max-width:520px){.site nav span{display:none}.site .feat{grid-template-columns:1fr}.url{display:none}}
+/* steps */
+ol.steps{list-style:none;counter-reset:s;padding:0;margin:28px 0 0;display:grid;gap:14px}
+ol.steps li{counter-increment:s;display:grid;grid-template-columns:48px 1fr;gap:14px;padding:16px 18px;background:var(--card);border:1px solid var(--line);border-radius:12px}
+ol.steps li::before{content:counter(s);font:700 1.6rem Georgia,serif;color:var(--doc)}
+ol.steps li.key{border-color:var(--doc);background:var(--doc-soft)}
+ol.steps b{display:block}
+ol.steps span{color:var(--muted);font-size:.95rem}
+pre{background:var(--code);color:var(--codeink);padding:20px;border-radius:12px;overflow:auto;font:13.5px/1.6 ui-monospace,Menlo,monospace;margin:20px 0 0}
+pre .c{color:#8b87a6}
+code{font-family:ui-monospace,Menlo,monospace;font-size:.9em;background:var(--line);padding:1px 6px;border-radius:5px}
+pre code{background:none;padding:0}
+.branch{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:20px;font:600 .9rem ui-monospace,monospace}
+.branch span{padding:7px 13px;border-radius:8px;background:var(--card);border:1px solid var(--line)}
+.branch b{color:var(--muted)}
+footer.pgfoot{padding:40px 0 60px;border-top:1px solid var(--line);color:var(--muted);font-size:.9rem}
+</style>
+</head>
+<body>
+
+<header class="hero"><div class="wrap">
+  <div class="eyebrow">Page-first editor · open source</div>
+  <h1>Edit the page.<br>Own the <em>Doc.</em></h1>
+  <p class="lede">Authors edit the real page as it appears on their live site. All changes are committed to Google Docs.</p>
+  <div class="btns">
+    <a class="btn primary" href="#demo">Try the demo</a>
+    <a class="btn" href="https://github.com/thegreenbot/pagefirst">View on GitHub</a>
+  </div>
+
+  <div class="pipe" aria-label="Three stores, one writer each">
+    <div class="node n1">
+      <span class="tag">Draft</span>
+      <h3>Editor draft</h3>
+      <small>Uncommitted page structure: words, images, layout.</small>
+      <div class="writer">Written by <b>typing</b></div>
+    </div>
+    <div class="arrow"><i></i><span>commit</span></div>
+    <div class="node n2">
+      <span class="tag">Canonical</span>
+      <h3>Google Doc</h3>
+      <small>The page, as sections, default content and block tables.</small>
+      <div class="writer">Written by <b>commit</b></div>
+    </div>
+    <div class="arrow b"><i></i><span>publish</span></div>
+    <div class="node n3">
+      <span class="tag">Snapshot</span>
+      <h3>Cloudflare</h3>
+      <small>Static HTML, CSS and assets for one revision. Readers never sign in.</small>
+      <div class="writer">Written by <b>publish</b></div>
+    </div>
+  </div>
+</div></header>
+
+<section><div class="wrap">
+  <div class="eyebrow">The problem</div>
+  <h2>Two good ideas that never met.</h2>
+  <div class="cols">
+    <div class="card">
+      <h3>Doc-first</h3>
+      <p>Write in a Google Doc and let a pipeline render it. Durable and collaborative, but authors can't see or edit the finished page.</p>
+      <div class="docmock">| Hero            |
+| title | Hello   |
+| image | (img)   |</div>
+    </div>
+    <div class="card">
+      <h3>Page-first</h3>
+      <p>Edit the rendered page directly. A great gesture, but the source of truth becomes HTML instead of a Doc your team already lives in.</p>
+      <div class="docmock" style="background:var(--draft-soft)">&lt;h1 contenteditable&gt;
+  Hello
+&lt;/h1&gt;</div>
+    </div>
+  </div>
+  <p class="lede" style="margin-top:28px"><strong style="color:var(--ink)">This app is the combination:</strong> the page-first editing gesture, with the doc-first source of truth.</p>
+</div></section>
+
+<section id="demo"><div class="wrap">
+  <div class="eyebrow">Interactive <span class="badge">sample mode · no credentials</span></div>
+  <h2>Feel the flow.</h2>
+  <p class="lede">Click the headline or subtitle on the site below and change it. Commit sends it to the Doc. Publish updates the live site.</p>
+  <div class="demo">
+    <div class="full">
+      <div class="lbl l1"><b>1 · Edit the page</b><span>Draft, not saved</span></div>
+      <div class="browser edit">
+        <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">larkspur.example/ &mdash; editing</div><span class="state" id="dirty"></span><button class="btn primary" id="commit" disabled>Commit</button></div>
+        <div id="edsite"></div>
+      </div>
+    </div>
+    <div>
+      <div class="lbl l2"><b>2 · Google Doc</b><span id="rev">rev 1</span></div>
+      <div class="gdoc">
+        <div class="tb"><i></i><span>Larkspur &mdash; home</span><span>canonical</span></div>
+        <div class="paper" id="doc"></div>
+      </div>
+      <p style="margin:12px 0 0"><button class="btn primary" id="publish">Publish</button></p>
+    </div>
+    <div>
+      <div class="lbl l3"><b>3 · Live site</b><span id="live">snapshot of rev 1</span></div>
+      <div class="browser live">
+        <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="url">https://larkspur.example/</div></div>
+        <div id="site"></div>
+      </div>
+    </div>
+  </div>
+  <p class="note">Notice: publish ships the <em>last committed</em> revision &mdash; never your unsaved draft.</p>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eyebrow">How it works</div>
+  <h2>Simplicity first.</h2>
+  <p class="lede">Preview every change exactly as visitors will see it, then publish with confidence.</p>
+  <ol class="steps">
+    <li><div><b>Edit</b><span>Change words, images and layout right on the page. Nothing is saved yet.</span></div></li>
+    <li><div><b>Commit</b><span>Your changes are pushed to the Google Doc through Google's own API.</span></div></li>
+    <li class="key"><div><b>Render</b><span>The server pulls the change back out of the Doc, then re-renders the page's HTML in its final state.</span></div></li>
+    <li><div><b>Publish</b><span>The finished HTML is uploaded to Cloudflare.</span></div></li>
+  </ol>
+  <pre><code><span class="c">// what a person sees if they open the Doc</span>
+type Page = {
+  fileId: string;
+  revisionId: string;
+  metadata: Record&lt;string, string&gt;;
+  sections: Section[];
+};
+type Node = Prose | Block;   <span class="c">// headings, paragraphs, images, or table blocks</span></code></pre>
+</div></section>
+
+<section><div class="wrap">
+  <div class="eyebrow">Run it</div>
+  <h2>Works with no credentials.</h2>
+  <p class="lede">Sample mode lists demo pages until you connect Google.</p>
+  <pre><code>npm install
+npm run dev   <span class="c"># http://127.0.0.1:3847</span>
+npm test</code></pre>
+  <div class="branch"><span>feature</span><b>→</b><span>develop</span><b>→</b><span>release/vX.Y.Z</span><b>→</b><span>main + tag</span></div>
+  <p class="note">Pull requests run lint, unit tests and a security audit. Details in CONTRIBUTING.md.</p>
+</div></section>
+
+<footer class="pgfoot"><div class="wrap">Page-first editor · <a href="https://github.com/thegreenbot/pagefirst">github.com/thegreenbot/pagefirst</a></div></footer>
+
+<script>
+(function(){
+  var $=function(i){return document.getElementById(i)};
+  function esc(x){var d=document.createElement('div');d.textContent=x;return d.innerHTML}
+  function site(t,sub,edit){
+    var ce=edit?' contenteditable spellcheck="false"':'';
+    return '<div class="site"><nav><b>Larkspur</b><span>Beans</span><span>Visit</span><span>About</span></nav>'+
+      '<div class="hero2"><h1'+(edit?' id="eh"':'')+ce+'>'+esc(t)+'</h1><p'+(edit?' id="es"':'')+ce+'>'+esc(sub)+'</p><span class="cta">Order beans</span></div>'+
+      '<div class="feat"><div><b>Single origin</b>Rotating lots from three farms.</div><div><b>Subscriptions</b>Fresh beans every two weeks.</div><div><b>Cafe hours</b>Daily, 7am to 4pm.</div></div>'+
+      '<div class="fine">&copy; Larkspur Coffee Roasters &middot; 12 Mill St</div></div>';
+  }
+  var T='Coffee roasted in small batches',S='Fresh beans from three farms, roasted every Tuesday.';
+  $('edsite').innerHTML=site(T,S,true);
+  var h=$('eh'),sub=$('es'),commitB=$('commit'),pubB=$('publish');
+  var committed={t:T,s:S,rev:1},published={t:T,s:S,rev:1};
+  function flash(el){el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash')}
+  function renderDoc(){
+    $('doc').innerHTML='<h4>'+esc(committed.t)+'</h4><div>'+esc(committed.s)+'</div>'+
+      '<table><tr><td>Hero button</td><td>Order beans</td></tr><tr><td>Section</td><td>Single origin, Subscriptions, Cafe hours</td></tr></table>';
+    $('rev').textContent='rev '+committed.rev;flash($('doc'));
+  }
+  function renderSite(){
+    $('site').innerHTML=site(published.t,published.s,false);
+    $('live').textContent='snapshot of rev '+published.rev;
+    flash($('site'));pubB.disabled=true;
+  }
+  function check(){
+    var dirty=h.textContent!==committed.t||sub.textContent!==committed.s;
+    commitB.disabled=!dirty;
+    $('dirty').innerHTML=dirty?'<span class="dirty">&#9679; unsaved</span>':'';
+  }
+  [h,sub].forEach(function(e){
+    e.addEventListener('input',check);
+    e.addEventListener('keydown',function(ev){if(ev.key==='Enter')ev.preventDefault()});
+  });
+  commitB.addEventListener('click',function(){
+    committed={t:h.textContent.trim()||'Untitled',s:sub.textContent.trim(),rev:committed.rev+1};
+    h.textContent=committed.t;sub.textContent=committed.s; /* draft replaced by what the Doc returned */
+    renderDoc();check();pubB.disabled=false;
+  });
+  pubB.addEventListener('click',function(){
+    published={t:committed.t,s:committed.s,rev:committed.rev};renderSite();
+  });
+  renderDoc();renderSite();
+})();
+</script>
+</body>
+</html>
