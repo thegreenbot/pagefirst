@@ -227,7 +227,7 @@ footer.pgfoot{padding:40px 0 60px;border-top:1px solid var(--line);color:var(--m
     <li class="key"><div><b>Render</b><span>The server pulls the change back out of the Doc, then re-renders the page's HTML in its final state.</span></div></li>
     <li><div><b>Publish</b><span>The finished HTML is uploaded to Cloudflare.</span></div></li>
   </ol>
-  <pre><code><span class="c">// what a person sees if they open the Doc</span>
+  <pre><code><span class="c">// authors just see text and tables in the Doc; this is how the app models it internally</span>
 type Page = {
   fileId: string;
   revisionId: string;
