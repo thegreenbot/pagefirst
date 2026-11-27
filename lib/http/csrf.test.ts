@@ -144,6 +144,20 @@ describe("OAuth endpoints (#36)", () => {
   });
 });
 
+describe("billing routes", () => {
+  const post = (path: string, headers: Record<string, string>) => new Request(`https://app.example${path}`, { method: "POST", headers, body: "{}" });
+
+  test("the Stripe webhook needs no Origin, since its signature authenticates it", () => {
+    assert.deepEqual(checkMutation(post("/api/billing/webhook", { "content-type": "application/json" }), "/api/billing/webhook"), { ok: true });
+  });
+
+  test("checkout and portal are cookie routes: same-origin JSON only", () => {
+    assert.equal(checkMutation(post("/api/billing/checkout", { "content-type": "application/json" }), "/api/billing/checkout").ok, false);
+    assert.equal(checkMutation(post("/api/billing/portal", { "content-type": "application/json", "sec-fetch-site": "same-origin" }), "/api/billing/portal").ok, true);
+    assert.equal(checkMutation(post("/api/billing/portal", { "content-type": "text/plain", "sec-fetch-site": "same-origin" }), "/api/billing/portal").ok, false);
+  });
+});
+
 describe("scim and enterprise admin routes", () => {
   const post = (path: string, headers: Record<string, string>) => new Request(`https://app.example${path}`, { method: "POST", headers, body: "{}" });
 

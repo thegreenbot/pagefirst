@@ -45,6 +45,7 @@ The server reads these variables:
 - `TOKEN_ENCRYPTION_KEY` — 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts stored Google refresh tokens.
 - `PUBLISH_ALLOWLIST` — only used while R2 is not configured: Google emails (comma- or space-separated) allowed to publish to the shared Pages project. Unset means nobody can; previews still work (#85 stopgap).
 - `AUDIT_ADMIN_EMAILS` — optional Google emails (comma- or space-separated) that may export every account's audit events from `GET /api/audit?from=…&to=…`. Everyone signed in can read their own events.
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO_MONTH`, `STRIPE_PRICE_PRO_YEAR`, `STRIPE_PRICE_TEAM_MONTH`, `STRIPE_PRICE_TEAM_YEAR` — hosted billing only; see [runbooks/billing.md](runbooks/billing.md). `PAGEFIRST_EDITION=hosted` turns on plan gating.
 - `APP_URL` — the public origin with no trailing slash, such as your Vercel production domain. Set it in production: sign-in redirects and the secure session cookie use it. When it is unset, the app uses the request's own origin (https for `*.vercel.app`).
 
 Set them in the server environment. This repository does not include values for them.
