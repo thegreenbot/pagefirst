@@ -8,7 +8,7 @@ import {
   KEY_PREFIX,
   KeyInputError,
   MAX_ACTIVE_KEYS,
-  createApiKey,
+  issueBearer,
   hashApiKey,
   listApiKeys,
   looksLikeApiKey,
@@ -68,7 +68,7 @@ describe("api keys", { skip: url ? false : "set TEST_DATABASE_URL to run Postgre
   });
 
   test("a created key verifies as its owner with exactly its scopes", async () => {
-    const { key, record } = await createApiKey("sub-a", { name: "ci", scopes: ["pages:read"], expiresInDays: 30 });
+    const { key, record } = await issueBearer("sub-a", { name: "ci", scopes: ["pages:read"], expiresInDays: 30 });
     assert.ok(key.startsWith(KEY_PREFIX));
     const verified = await verifyApiKey(key);
     assert.equal(verified?.sub, "sub-a");
@@ -77,7 +77,7 @@ describe("api keys", { skip: url ? false : "set TEST_DATABASE_URL to run Postgre
   });
 
   test("only the hash is stored, never the key", async () => {
-    const { key } = await createApiKey("sub-a", { name: "ci", scopes: ["pages:read"] });
+    const { key } = await issueBearer("sub-a", { name: "ci", scopes: ["pages:read"] });
     const rows = await query<Record<string, unknown>>("SELECT * FROM api_keys");
     assert.equal(rows[0]?.key_hash, hashApiKey(key));
     assert.ok(!JSON.stringify(rows).includes(key));
@@ -86,7 +86,7 @@ describe("api keys", { skip: url ? false : "set TEST_DATABASE_URL to run Postgre
   });
 
   test("revoking takes effect on the very next verification", async () => {
-    const { key, record } = await createApiKey("sub-a", { name: "ci", scopes: ["pages:read"] });
+    const { key, record } = await issueBearer("sub-a", { name: "ci", scopes: ["pages:read"] });
     assert.ok(await verifyApiKey(key));
     assert.equal(await revokeApiKey("sub-a", record.id), true);
     assert.equal(await verifyApiKey(key), null);
@@ -94,14 +94,14 @@ describe("api keys", { skip: url ? false : "set TEST_DATABASE_URL to run Postgre
   });
 
   test("another user cannot revoke or see a key", async () => {
-    const { key, record } = await createApiKey("sub-a", { name: "ci", scopes: ["pages:read"] });
+    const { key, record } = await issueBearer("sub-a", { name: "ci", scopes: ["pages:read"] });
     assert.equal(await revokeApiKey("sub-b", record.id), false);
     assert.ok(await verifyApiKey(key));
     assert.deepEqual(await listApiKeys("sub-b"), []);
   });
 
   test("an expired key stops working", async () => {
-    const { key, record } = await createApiKey("sub-a", { name: "ci", scopes: ["pages:read"] });
+    const { key, record } = await issueBearer("sub-a", { name: "ci", scopes: ["pages:read"] });
     await query("UPDATE api_keys SET expires_at = now() - interval '1 second' WHERE id = $1", [record.id]);
     assert.equal(await verifyApiKey(key), null);
   });
@@ -112,7 +112,7 @@ describe("api keys", { skip: url ? false : "set TEST_DATABASE_URL to run Postgre
   });
 
   test("last_used_at is recorded", async () => {
-    const { key, record } = await createApiKey("sub-a", { name: "ci", scopes: ["pages:read"] });
+    const { key, record } = await issueBearer("sub-a", { name: "ci", scopes: ["pages:read"] });
     await verifyApiKey(key);
     await new Promise((resolve) => setTimeout(resolve, 100));
     const [row] = await query<{ last_used_at: Date | null }>("SELECT last_used_at FROM api_keys WHERE id = $1", [record.id]);
@@ -120,13 +120,13 @@ describe("api keys", { skip: url ? false : "set TEST_DATABASE_URL to run Postgre
   });
 
   test("a user is capped at the active-key limit", async () => {
-    for (let i = 0; i < MAX_ACTIVE_KEYS; i += 1) await createApiKey("sub-a", { name: `k${i}`, scopes: ["pages:read"] });
-    await assert.rejects(createApiKey("sub-a", { name: "one too many", scopes: ["pages:read"] }), KeyInputError);
-    await createApiKey("sub-b", { name: "other user", scopes: ["pages:read"] });
+    for (let i = 0; i < MAX_ACTIVE_KEYS; i += 1) await issueBearer("sub-a", { name: `k${i}`, scopes: ["pages:read"] });
+    await assert.rejects(issueBearer("sub-a", { name: "one too many", scopes: ["pages:read"] }), KeyInputError);
+    await issueBearer("sub-b", { name: "other user", scopes: ["pages:read"] });
   });
 
   test("site folders round-trip", async () => {
-    const { key } = await createApiKey("sub-a", { name: "ci", scopes: ["pages:read"], siteFolders: ["1AbCdEfGhIjKl"] });
+    const { key } = await issueBearer("sub-a", { name: "ci", scopes: ["pages:read"], siteFolders: ["1AbCdEfGhIjKl"] });
     assert.deepEqual((await verifyApiKey(key))?.siteFolders, ["1AbCdEfGhIjKl"]);
   });
 });

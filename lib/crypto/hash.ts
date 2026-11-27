@@ -15,6 +15,6 @@ function pepper(): Buffer {
   return Buffer.from(hkdfSync("sha256", key, Buffer.alloc(0), "pagefirst bearer secret hash v1", 32));
 }
 
-export function hashSecret(secret: string): string {
-  return createHmac("sha256", pepper()).update(secret).digest("hex");
+export function lookupDigest(value: string): string {
+  return createHmac("sha256", pepper()).update(value).digest("hex");
 }
