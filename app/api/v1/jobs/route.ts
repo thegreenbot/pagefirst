@@ -1,8 +1,10 @@
 import { NextResponse, after } from "next/server";
 import { v1, readJson } from "@/lib/api/v1";
 import { MAX_PAGES_PER_JOB } from "@/lib/api/limits";
-import { advanceJob } from "@/lib/jobs/run";
+import { advanceAndNotify } from "@/lib/jobs/run";
 import { createJob, JOB_KINDS, jobCounts, type JobKind, type NewItem } from "@/lib/jobs/store";
+import { encryptionConfigured } from "@/lib/crypto/secretbox";
+import { UnsafeUrlError, validateWebhookUrl } from "@/lib/net/public-host";
 import { isSafeId } from "@/lib/page/types";
 import { requireScope, ServiceError, type ServiceContext } from "@/lib/service";
 
@@ -52,6 +54,19 @@ export function POST(request: Request) {
       if (body.dryRun !== undefined && typeof body.dryRun !== "boolean") throw new ServiceError("invalid", "dryRun must be true or false.");
       if (body.policy !== undefined && !isRecord(body.policy)) throw new ServiceError("invalid", "policy must be an object.");
       scopesFor(ctx, kind as JobKind, items);
+      let webhook: { url: string; secret: string } | undefined;
+      if (body.webhook !== undefined) {
+        if (!isRecord(body.webhook) || typeof body.webhook.secret !== "string" || body.webhook.secret.length < 16 || body.webhook.secret.length > 256) {
+          throw new ServiceError("invalid", "webhook must be { url, secret } with a secret of 16 to 256 characters.");
+        }
+        try {
+          webhook = { url: validateWebhookUrl(body.webhook.url).toString(), secret: body.webhook.secret };
+        } catch (error) {
+          if (error instanceof UnsafeUrlError) throw new ServiceError("invalid", `webhook.${error.message}`);
+          throw error;
+        }
+        if (!encryptionConfigured()) throw new ServiceError("unsupported", "Webhooks are not available on this instance.");
+      }
 
       const job = await createJob({
         credentialId: `${credential.kind}:${credential.id}:${ctx.actor.sub}`,
@@ -62,8 +77,9 @@ export function POST(request: Request) {
         dryRun: body.dryRun === true,
         policy: (body.policy as Record<string, unknown> | undefined) ?? {},
         items,
+        ...(webhook ? { webhook } : {}),
       });
-      after(() => advanceJob(job.id).catch(() => undefined));
+      after(() => advanceAndNotify(job.id));
       return NextResponse.json({ job: { id: job.id, kind: job.kind, status: job.status, dryRun: job.dryRun, createdAt: job.createdAt }, counts: await jobCounts(job.id) }, { status: 202 });
     },
     { idempotent: true, audit: "job.started" },

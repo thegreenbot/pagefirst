@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { seal } from "@/lib/crypto/secretbox";
 import { query, transaction } from "@/lib/db/client";
 import { MAX_CONCURRENT_JOBS_PER_CREDENTIAL, MAX_PAGES_PER_JOB } from "@/lib/api/limits";
 import { ServiceError, type Scope } from "@/lib/service";
@@ -88,6 +89,8 @@ export type NewJob = {
   dryRun: boolean;
   policy: Record<string, unknown>;
   items: NewItem[];
+  /** Called once when the job finishes; the secret signs the body. */
+  webhook?: { url: string; secret: string };
 };
 
 /** Accepts a job: refuses one over the item ceiling, or when the credential already has its share running. */
@@ -108,9 +111,9 @@ export async function createJob(input: NewJob): Promise<JobRow> {
       throw new ServiceError("rate_limited", `At most ${MAX_CONCURRENT_JOBS_PER_CREDENTIAL} jobs can run at once for one credential.`, { retryAfterSeconds: 30 });
     }
     const { rows } = await client.query<Row>(
-      `INSERT INTO jobs (id, credential_id, sub, scopes, site_folders, kind, dry_run, policy)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [id, input.credentialId, input.sub, [...input.scopes], input.siteFolders ? [...input.siteFolders] : null, input.kind, input.dryRun, JSON.stringify(input.policy)],
+      `INSERT INTO jobs (id, credential_id, sub, scopes, site_folders, kind, dry_run, policy, webhook_url, webhook_secret)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [id, input.credentialId, input.sub, [...input.scopes], input.siteFolders ? [...input.siteFolders] : null, input.kind, input.dryRun, JSON.stringify(input.policy), input.webhook?.url ?? null, input.webhook ? seal(input.webhook.secret, `job-webhook:${id}`) : null],
     );
     // One statement for all items, so a 500-page job is not 500 round trips.
     await client.query(
@@ -191,7 +194,14 @@ export async function settleJob(jobId: string): Promise<JobStatus | null> {
   const left = await query<{ n: string }>("SELECT count(*) AS n FROM job_items WHERE job_id = $1 AND status IN ('pending', 'running')", [jobId]);
   if (Number(left[0]!.n) > 0) return null;
   const status: JobStatus = job[0]?.cancel_requested ? "cancelled" : "done";
-  await query("UPDATE jobs SET status = $2, finished_at = now() WHERE id = $1 AND status IN ('queued', 'running')", [jobId, status]);
+  // Settling queues the completion webhook, once: only the call that changes the status does.
+  await query(
+    `UPDATE jobs SET status = $2, finished_at = now(),
+            webhook_state = CASE WHEN webhook_url IS NOT NULL THEN 'pending' ELSE 'none' END,
+            webhook_next_at = CASE WHEN webhook_url IS NOT NULL THEN now() ELSE NULL END
+      WHERE id = $1 AND status IN ('queued', 'running')`,
+    [jobId, status],
+  );
   return status;
 }
 
