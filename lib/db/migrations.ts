@@ -288,7 +288,7 @@ export const MIGRATIONS: Migration[] = [
     name: "api keys",
     sql: `
       -- Scoped credentials for scripts and agents (#36). The key itself is never
-      -- stored, only its SHA-256, so a database leak cannot be replayed.
+      -- stored, only a keyed hash, so a database leak cannot be replayed.
       CREATE TABLE api_keys (
         id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         sub          text NOT NULL REFERENCES users(sub) ON DELETE CASCADE,
