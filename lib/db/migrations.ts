@@ -101,6 +101,8 @@ export const MIGRATIONS: Migration[] = [
         file_id     text PRIMARY KEY,
         revision_id text,
         html        text NOT NULL,
+        -- Per-page CSP for the theme engine (#54); null means the default policy.
+        csp         text,
         updated_at  timestamptz NOT NULL DEFAULT now()
       );
 
