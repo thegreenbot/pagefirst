@@ -8,7 +8,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 
 | Asset | Where it lives today | Why it matters |
 | --- | --- | --- |
-| Google OAuth grant (access token) | `pf_access` cookie, `HttpOnly`, `SameSite=Lax`, 1 hour | Reads and writes the user's Docs. Scopes: identity, `documents`, `drive.file` (`lib/google/oauth.ts`). |
+| Google OAuth grant | With Postgres configured: refresh and access tokens sealed (AES-256-GCM) in `google_tokens`; the browser holds only an opaque session id. Without it: the legacy `pf_access` cookie, 1 hour | Reads and writes the user's Docs. Scopes: identity, `documents`, `drive.file` (`lib/google/oauth.ts`). |
 | Doc contents | Google; parsed in memory per request | The user's writing. Also untrusted input to the editor and published HTML. |
 | Cloudflare API token | `CLOUDFLARE_API_TOKEN` in the deployment environment | Deploys the public site. |
 | Published site | Cloudflare Pages project `page-first` | Public face of every published page. |
@@ -45,7 +45,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 | Flooding commit, publish or upload | Per-caller rate limits with `Retry-After` | Buckets are per process and evict after 500 keys | #18 |
 | Stored XSS from Doc text into the editor or published HTML | `lib/page/render.ts` escapes text, attributes and ids; media served with `nosniff` and a sandbox CSP for SVG | No CSP or security headers on the app; no hostile-content render tests | #19 |
 | Uploaded file rendered as a page | MIME allow-list, markup sniffing, `nosniff`, sandbox CSP for SVG | No `Content-Disposition`; media kept in memory | #19, #18 |
-| Stolen session cookie | `HttpOnly`, `Secure` on https, 1-hour lifetime | Cookie holds the raw Google token; logout does not revoke at Google | #16 |
+| Stolen session cookie | Opaque `__Host-pf_session` id, stored hashed; 7-day idle and 30-day absolute timeouts; sign-out deletes it and revokes the Google grant on the last session; "sign out everywhere" | Legacy `pf_access` mode remains when the database is not configured | #16 (done) |
 | Clickjacking the editor | None | No `frame-ancestors` | #19 |
 
 ### App ↔ Google
@@ -54,7 +54,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 | --- | --- | --- | --- |
 | Over-broad grant: the app can read and write every Doc the user can | `drive.file` is requested | The full `documents` scope is also requested | #15 |
 | OAuth code interception or login CSRF | `state` and S256 PKCE, both cleared after use; redirect URI fixed by `APP_URL` | None known | — |
-| Token leaks into logs or error bodies | Error text is redacted in `lib/store.ts`; HTTP tests assert no token in responses | Redaction is local to one module | #16 |
+| Token leaks into logs or error bodies | Shared `lib/log.ts` redaction (known secrets plus Google token shapes); HTTP tests assert no token in responses, cookies or database rows | — | #16 (done) |
 | Acting on a Doc the user may not edit | Every call uses the user's own token; Google's 403 is the answer | None | — |
 | No record of who changed which Doc | None | No audit log | #17, #10 |
 | Temporary "anyone with the link" Drive share used by `insertInlineImage` stays public if the process dies | Image insert into Docs is not built yet, so no share is created today | When built: remove the permission in `finally`, persist pending shares and sweep them, audit create and remove, or avoid the public share with a short-lived signed URL | #20, #10 |
@@ -73,7 +73,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 | Threat | Current control | Gap | Issue |
 | --- | --- | --- | --- |
 | Stolen or over-scoped API key | Not built | Needs hashed keys, scopes, revocation, per-key limits and audit | #36, #17 |
-| Background jobs act without a fresh grant | Not built | Needs encrypted refresh tokens with revocation | #16, #10 |
+| Background jobs act without a fresh grant | `accessTokenFor(sub)` refreshes server-side with single-flight locking | Jobs themselves not built | #16 (done) |
 
 ### Repository, CI and deployment
 

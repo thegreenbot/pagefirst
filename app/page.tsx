@@ -74,11 +74,18 @@ export default async function Home({
               to edit Docs you own.
             </p>
           ) : (
-            <form action="/api/auth/logout" method="post" className="mt-6">
-              <button type="submit" className="text-sm text-green underline underline-offset-2">
-                Sign out of Google
-              </button>
-            </form>
+            <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2">
+              <form action="/api/auth/logout" method="post">
+                <button type="submit" className="text-sm text-green underline underline-offset-2">
+                  Sign out of Google
+                </button>
+              </form>
+              <form action="/api/auth/disconnect" method="post">
+                <button type="submit" className="text-sm text-ink-soft underline underline-offset-2">
+                  Sign out everywhere
+                </button>
+              </form>
+            </div>
           )}
         </section>
 
