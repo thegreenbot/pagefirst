@@ -13,7 +13,7 @@ export async function GET(
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const media = readMedia(id);
+  const media = await readMedia(id);
   if (!media) {
     return NextResponse.json({ error: "Media not found" }, { status: 404 });
   }

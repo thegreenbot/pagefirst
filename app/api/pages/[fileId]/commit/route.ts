@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readTextCapped } from "@/lib/http/body";
-import { callerKey, checkRateLimit, requireGoogleWriter, tooManyRequests } from "@/lib/guard";
+import { callerKey, checkRateLimit, requireGoogleWriter, tooManyRequests, withRateLimit } from "@/lib/guard";
 import { isSafeId, type CommitResult } from "@/lib/page/types";
 import { LIMITS, validateCommitRequest } from "@/lib/page/validate";
 import { commitPage } from "@/lib/store";
@@ -25,10 +25,10 @@ export async function POST(
   if (!writer.ok) {
     return NextResponse.json({ error: writer.error }, { status: 401 });
   }
-  const limit = checkRateLimit(`commit:${callerKey(writer.token, request)}`, COMMIT_LIMIT);
+  const limit = await checkRateLimit("commit", callerKey(writer.token, request, writer.sub), COMMIT_LIMIT);
   if (!limit.ok) {
     await auditRequest(request, { event: "request.denied", outcome: "denied", fileId, status: 429, errorCode: "rate_limited:commit" });
-    return tooManyRequests("Too many saves. Wait a moment and try again.", limit.retryAfterSeconds);
+    return tooManyRequests("Too many saves. Wait a moment and try again.", limit);
   }
 
   const read = await readTextCapped(request, LIMITS.maxBodyBytes);
@@ -60,5 +60,5 @@ export async function POST(
     status: result.ok ? 200 : result.status,
     errorCode: result.ok ? null : result.error,
   });
-  return NextResponse.json(result, { status: result.ok ? 200 : result.status });
+  return withRateLimit(NextResponse.json(result, { status: result.ok ? 200 : result.status }), limit);
 }

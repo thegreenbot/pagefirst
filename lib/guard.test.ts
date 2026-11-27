@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { callerKey, checkRateLimit, sameOrigin, tooManyRequests, withinRateLimit } from "./guard";
+import { callerKey, sameOrigin, tooManyRequests } from "./guard";
 
 function request(headers: Record<string, string>, url = "https://app.example/api/x"): Request {
   return new Request(url, { method: "POST", headers });
@@ -36,6 +36,13 @@ describe("callerKey", () => {
     assert.equal(key, callerKey("secret-token", request({ "x-forwarded-for": "203.0.113.9" })));
   });
 
+  test("prefers the Google account, so a refreshed token keeps the same budget", () => {
+    const first = callerKey("token-a", request({}), "sub-1");
+    assert.equal(first, callerKey("token-b", request({}), "sub-1"));
+    assert.match(first, /^sub:[0-9a-f]{24}$/);
+    assert.ok(!first.includes("sub-1"));
+  });
+
   test("uses the first forwarded address when signed out", () => {
     assert.equal(callerKey(null, request({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" })), "ip:203.0.113.9");
     assert.equal(callerKey(null, request({})), "ip:local");
@@ -47,37 +54,14 @@ describe("callerKey", () => {
   });
 });
 
-describe("withinRateLimit", () => {
-  test("allows `limit` calls a minute per key, then refuses", () => {
-    const key = `test:${Math.random()}`;
-    const results = Array.from({ length: 4 }, () => withinRateLimit(key, 3));
-    assert.deepEqual(results, [true, true, true, false]);
-    assert.equal(withinRateLimit(`${key}:other`, 3), true, "keys are independent");
-  });
-
-  test("frees a slot once a minute has passed", (t) => {
-    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
-    const key = `test:${Math.random()}`;
-    assert.equal(withinRateLimit(key, 1), true);
-    assert.equal(withinRateLimit(key, 1), false);
-    t.mock.timers.tick(60_001);
-    assert.equal(withinRateLimit(key, 1), true);
-  });
-});
-
-describe("checkRateLimit", () => {
-  test("says how many seconds until the oldest call leaves the window", (t) => {
-    t.mock.timers.enable({ apis: ["Date"], now: 2_000_000 });
-    const key = `test:${Math.random()}`;
-    assert.deepEqual(checkRateLimit(key, 1), { ok: true });
-    t.mock.timers.tick(15_000);
-    assert.deepEqual(checkRateLimit(key, 1), { ok: false, retryAfterSeconds: 45 });
-  });
-
-  test("tooManyRequests sets status 429 and Retry-After", async () => {
-    const res = tooManyRequests("Slow down.", 12);
+describe("tooManyRequests", () => {
+  test("sets status 429, Retry-After and RateLimit-* headers", async () => {
+    const res = tooManyRequests("Slow down.", { ok: false, limit: 6, remaining: 0, resetSeconds: 12, retryAfterSeconds: 12 });
     assert.equal(res.status, 429);
     assert.equal(res.headers.get("retry-after"), "12");
+    assert.equal(res.headers.get("ratelimit-limit"), "6");
+    assert.equal(res.headers.get("ratelimit-remaining"), "0");
+    assert.equal(res.headers.get("ratelimit-reset"), "12");
     assert.deepEqual(await res.json(), { error: "Slow down." });
   });
 });
