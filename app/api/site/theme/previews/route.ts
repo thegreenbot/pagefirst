@@ -9,7 +9,7 @@ export const maxDuration = 60;
 
 /** Runs a theme change as a dry run (#66). The body is the same change PUT /api/site/theme takes. */
 export async function POST(request: Request) {
-  const site = await requireSite(request, "site-theme-preview");
+  const site = await requireSite(request, "site-theme-preview", "admin");
   if (!site.ok) return site.response;
   const read = await readJsonBody(request);
   if (!read.ok) return read.response;
