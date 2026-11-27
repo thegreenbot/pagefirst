@@ -6,7 +6,7 @@ import { mayPublishPublicly } from "@/lib/publish/allowlist";
 import { isSafeId, type PublishResult } from "@/lib/page/types";
 import { renderPageHtml } from "@/lib/page/render";
 import { uploadToCloudflare } from "@/lib/publish/cloudflare";
-import { savePreview } from "@/lib/publish/preview";
+import { savePreview, savePreviewAssets } from "@/lib/publish/preview";
 import { getPage } from "@/lib/store";
 import { renderContextFor } from "@/lib/site/theme-config";
 import { auditRequest } from "@/lib/audit-request";
@@ -55,7 +55,9 @@ export async function POST(
 
   // Sample pages have no site; signed-in pages render with their site's stored theme (#56).
   const renderContext = await renderContextFor(payload.sample ? null : writer.sub, fileId);
-  const { html, csp } = renderPageHtml(payload.page, "publish", renderContext);
+  const { html, csp, assets } = renderPageHtml(payload.page, "publish", renderContext);
+  // In memory for now; the R2 publish path (#63, #94) uploads these with the page.
+  savePreviewAssets(assets);
   await savePreview(fileId, html, csp, payload.page.revisionId);
 
   const body: PublishResponse = {

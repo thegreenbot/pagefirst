@@ -1,4 +1,4 @@
-# ADR 0001: Theme package contract and Liquid render API
+# ADR 0002: Theme package contract and Liquid render API
 
 - Status: accepted
 - Date: 2026-11-27
@@ -71,6 +71,7 @@ All values are read-only plain data. Templates never see Drive ids, tokens, cook
 | Tag or filter | Behaviour |
 | --- | --- |
 | `{% pf_head %}` | Emits the engine-managed head: charset, CSP `<meta>`, title, description, the page's CSS (inlined or deferred, #59), preloads (#62, #63). Required in every layout. |
+| `{% pf_foot %}` | Emits engine-managed markup just before `</body>`: the deferred stylesheet link (#59) and, later, the island loader (#60). If a layout leaves it out, the engine inserts it before `</body>`. |
 | `{% pf_node node %}` | Renders one node: prose through `partials/prose.liquid` if the theme has it, else the built-in prose markup; blocks through `blocks/<name>/block.liquid`. |
 | `{% pf_id node %}` | Emits ` data-pf-id="..."` in edit mode and nothing in publish mode. Put it on the root element of every block and prose node so the editor can target it. |
 | `{% image node %}` | Emits an `<img>` with `alt`, `width`, `height`, `srcset` and `sizes`, with eager loading and `fetchpriority="high"` for the first image above the fold and lazy loading for the rest (#61). |
@@ -95,6 +96,10 @@ A Doc can name a block the active theme does not declare, for example after a th
 ### 7. Render modes
 
 The render function takes `mode: "edit" | "publish"`. The only difference is that edit mode adds `data-pf-id` attributes through `{% pf_id %}`. The editor shows edit output in a sandboxed iframe (#55), and a test checks that edit and publish output are identical once those attributes are removed.
+
+### 8. Page CSS (#59)
+
+The page gets `styles/base.css` plus the `block.css` of each declared block on the page, minified, with selectors for declared options the page does not use removed. If that is 10 KB or less compressed, it is all inlined in one `<style>`. Otherwise base and first-section block CSS are inlined, and the rest is one content-addressed file, `/assets/pf/<hash>.css`, shared by pages with the same block set. That file is linked at the end of `<body>` rather than swapped from `media="print"` with an `onload` handler, so published pages keep `script-src 'none'`. The CSP then allows `style-src 'self'` as well as the inline style's hash. The editor preview always inlines everything.
 
 ## Consequences
 

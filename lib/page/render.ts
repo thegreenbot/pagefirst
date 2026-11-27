@@ -1,5 +1,5 @@
 import type { RenderContext } from "@/lib/site/theme-config";
-import { publishedCsp } from "@/lib/theme/csp";
+import { nodeOptimizer, publishedCsp } from "@/lib/theme/csp";
 import { renderPage, type RenderMode, type RenderResult } from "@/lib/theme/engine";
 import { getDefaultTheme } from "@/lib/theme/package";
 import { withPresentation } from "@/lib/theme/presentation";
@@ -13,7 +13,7 @@ import type { Page } from "./types";
 export function renderPageHtml(page: Page, mode: RenderMode = "publish", context?: RenderContext): RenderResult {
   const theme = context?.theme ?? getDefaultTheme();
   const applied = withPresentation(page, context?.config ?? null, context?.presentation ?? null);
-  return renderPage(applied.page, theme, { ...applied.options, mode, csp: publishedCsp });
+  return renderPage(applied.page, theme, { ...applied.options, mode, csp: publishedCsp, optimizer: nodeOptimizer });
 }
 
 export function renderPublishHtml(page: Page): string {

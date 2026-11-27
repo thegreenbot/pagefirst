@@ -1,9 +1,10 @@
 import { Liquid, Tag, Value, type Context, type Emitter, type TagToken, type TopLevelToken } from "liquidjs";
 import type { Block, Page, Prose } from "@/lib/page/types";
+import { CRITICAL_CSS_BUDGET_BYTES, minifyCss, pruneUnusedOptions } from "./css";
 import type { ThemePackage } from "./package";
 
 /**
- * The theme engine (docs/adr/0001-theme-package-contract.md). Renders a Page
+ * The theme engine (docs/adr/0002-theme-package-contract.md). Renders a Page
  * with a theme package through a sandboxed LiquidJS instance. Templates get
  * read-only views of the page; only the engine's own tags emit markup.
  */
@@ -22,14 +23,23 @@ export type RenderOptions = {
    * <meta> tag. Server renders pass publishedCsp (lib/theme/csp.ts); the engine
    * itself has no Node imports so the editor can render in the browser.
    */
-  csp?: (styleText: string) => string;
+  csp?: (styleText: string, extra: { selfStyles: boolean }) => string;
+  /**
+   * Server-side helpers for splitting CSS (#59). Without them, or in edit mode,
+   * all of the page's CSS is inlined.
+   */
+  optimizer?: { gzipSize: (text: string) => number; hash: (text: string) => string };
 };
+
+/** A file the page references, to be served or uploaded next to it. */
+export type RenderAsset = { path: string; contentType: string; body: string };
 
 export type RenderResult = {
   html: string;
   /** The CSP written into the page, or "" when no csp builder was given. */
   csp: string;
   warnings: string[];
+  assets: RenderAsset[];
 };
 
 const LIMITS = {
@@ -69,6 +79,8 @@ type RenderState = {
   /** Pre-rendered markup for every node view, written by {% pf_node %}. */
   html: WeakMap<object, string>;
   head: string;
+  foot: string;
+  footUsed: boolean;
 };
 
 const STATE = Symbol("pagefirst.render");
@@ -128,6 +140,15 @@ class PfHeadTag extends Tag {
   }
 }
 
+/** {% pf_foot %}: just before </body>. Deferred CSS, and island loaders later (#60). */
+class PfFootTag extends Tag {
+  render(ctx: Context, emitter: Emitter): void {
+    const s = state(ctx);
+    s.footUsed = true;
+    emitter.write(s.foot);
+  }
+}
+
 /** {% island %}…{% endisland %} marks where block JS mounts (#60). Until then it renders its body. */
 class IslandTag extends Tag {
   private body: ReturnType<Liquid["parser"]["parseTokens"]> = [];
@@ -183,6 +204,7 @@ function engineFor(theme: ThemePackage): Liquid {
     memoryLimit: LIMITS.memoryLimit,
   });
   liquid.registerTag("pf_head", PfHeadTag);
+  liquid.registerTag("pf_foot", PfFootTag);
   liquid.registerTag("pf_node", PfNodeTag);
   liquid.registerTag("pf_id", PfIdTag);
   liquid.registerTag("image", ImageTag);
@@ -262,6 +284,42 @@ function settingDefaults(theme: ThemePackage): Record<string, unknown> {
   return out;
 }
 
+/**
+ * Base CSS plus the CSS of blocks on the page, minified, without selectors for
+ * declared options the page does not use. Inlined whole when it fits the
+ * critical budget; otherwise base and first-section blocks are inlined and the
+ * rest is one content-addressed file shared by pages with the same block set.
+ */
+function planCss(
+  theme: ThemePackage,
+  usedBlocks: Set<string>,
+  usedOptions: Map<string, Set<string>>,
+  firstSection: Set<string>,
+  optimizer: RenderOptions["optimizer"],
+): { critical: string; deferred: RenderAsset | null } {
+  const unused: Record<string, string[]> = {};
+  for (const name of usedBlocks) {
+    const declared = theme.manifest.blocks[name]?.options ?? [];
+    const seen = usedOptions.get(name) ?? new Set<string>();
+    unused[name] = declared.filter((option) => !seen.has(option));
+  }
+  const prepare = (source: string) => pruneUnusedOptions(minifyCss(source), unused);
+  const base = prepare(theme.baseCss);
+  const blocks = Object.keys(theme.manifest.blocks)
+    .filter((name) => usedBlocks.has(name))
+    .map((name) => ({ name, css: prepare(theme.blockCss[name] ?? "") }));
+  const all = base + blocks.map((block) => block.css).join("");
+  if (!optimizer || optimizer.gzipSize(all) <= CRITICAL_CSS_BUDGET_BYTES) return { critical: all, deferred: null };
+
+  const critical = base + blocks.filter((block) => firstSection.has(block.name)).map((block) => block.css).join("");
+  const rest = blocks.filter((block) => !firstSection.has(block.name)).map((block) => block.css).join("");
+  if (!rest) return { critical, deferred: null };
+  return {
+    critical,
+    deferred: { path: `assets/pf/${optimizer.hash(rest)}.css`, contentType: "text/css; charset=utf-8", body: rest },
+  };
+}
+
 export function renderPage(page: Page, theme: ThemePackage, options: RenderOptions = {}): RenderResult {
   const mode = options.mode ?? "publish";
   const template = options.template ?? "page";
@@ -274,6 +332,8 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
   const html = new WeakMap<object, string>();
   const blocks: { view: BlockView }[] = [];
   const usedBlocks = new Set<string>();
+  const usedOptions = new Map<string, Set<string>>();
+  const firstSectionBlocks = new Set<string>();
   let lcpTaken = false;
 
   const prose = (node: Prose, sectionIndex: number): ProseView => {
@@ -293,6 +353,10 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
       if (dropped.length) warnings.push(`Block "${node.name}" does not support ${dropped.map((o) => `"${o}"`).join(", ")}`);
       options = options.filter((option) => allowed.has(option));
       usedBlocks.add(node.name);
+      if (sectionIndex === 0) firstSectionBlocks.add(node.name);
+      const seen = usedOptions.get(node.name) ?? new Set<string>();
+      for (const option of options) seen.add(option);
+      usedOptions.set(node.name, seen);
     } else {
       warnings.push(`Block "${node.name}" is not in ${manifest.name}; it renders with plain markup`);
     }
@@ -340,11 +404,9 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
     mode,
   };
 
-  const css = [theme.baseCss, ...Object.keys(manifest.blocks).filter((name) => usedBlocks.has(name)).map((name) => theme.blockCss[name] ?? "")]
-    .filter(Boolean)
-    .join("\n");
-  const styleText = `\n${css}\n`;
-  const csp = options.csp ? options.csp(styleText) : "";
+  const css = planCss(theme, usedBlocks, usedOptions, firstSectionBlocks, mode === "edit" ? undefined : options.optimizer);
+  const styleText = css.critical;
+  const csp = options.csp ? options.csp(styleText, { selfStyles: !!css.deferred }) : "";
   const cspMeta = csp ? `\n<meta http-equiv="Content-Security-Policy" content="${csp.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">` : "";
   const description = pageView.description
     ? `\n<meta name="description" content="${escapeHtml(pageView.description)}">`
@@ -355,7 +417,8 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
 <title>${escapeHtml(title)}</title>${description}
 <style>${styleText}</style>`;
 
-  const renderState: RenderState = { mode, html, head };
+  const foot = css.deferred ? `<link rel="stylesheet" href="/${css.deferred.path}">` : "";
+  const renderState: RenderState = { mode, html, head, foot, footUsed: false };
   const globals = { [STATE]: renderState };
 
   for (const { view } of blocks) {
@@ -367,7 +430,12 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
     html.set(view, String(out));
   }
   // Blocks were rendered in document order; a block never contains another block.
-  const out = String(liquid.renderFileSync(`layouts/${template}`, scope, { globals }));
+  let out = String(liquid.renderFileSync(`layouts/${template}`, scope, { globals }));
+  if (foot && !renderState.footUsed) {
+    // The layout has no {% pf_foot %}; put it before the last </body>, or at the end.
+    const at = out.lastIndexOf("</body>");
+    out = at === -1 ? `${out}${foot}` : `${out.slice(0, at)}${foot}\n${out.slice(at)}`;
+  }
   if (out.length > LIMITS.outputBytes) throw new Error(`${manifest.name}: page output exceeds ${LIMITS.outputBytes} bytes`);
-  return { html: out, csp, warnings };
+  return { html: out, csp, warnings, assets: css.deferred ? [css.deferred] : [] };
 }
