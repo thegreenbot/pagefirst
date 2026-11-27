@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { callerKey, checkRateLimit, requireGoogleWriter, sameOrigin, tooManyRequests } from "@/lib/guard";
+import { callerKey, checkRateLimit, requireGoogleWriter, sameOrigin, tooManyRequests, withRateLimit } from "@/lib/guard";
 import { googleConfigured } from "@/lib/google/config";
 import { fetchGoogleIdentity } from "@/lib/google/userinfo";
 import { mayPublishPublicly } from "@/lib/publish/allowlist";
@@ -30,10 +30,10 @@ export async function POST(
   if (!googleConfigured() && !sameOrigin(request)) {
     return NextResponse.json({ error: "Sign in with Google to publish." }, { status: 401 });
   }
-  const limit = checkRateLimit(`publish:${callerKey(writer.token, request)}`, 6);
+  const limit = await checkRateLimit("publish", callerKey(writer.token, request, writer.sub), 6);
   if (!limit.ok) {
     await auditRequest(request, { event: "request.denied", outcome: "denied", fileId, status: 429, errorCode: "rate_limited:publish" });
-    return tooManyRequests("Too many publish requests. Wait a minute.", limit.retryAfterSeconds);
+    return tooManyRequests("Too many publish requests. Wait a minute.", limit);
   }
 
   let wantsPublic = false;
@@ -53,7 +53,7 @@ export async function POST(
   }
 
   const html = await renderPublishHtml(payload.page);
-  savePreview(fileId, html);
+  await savePreview(fileId, html, payload.page.revisionId);
 
   const body: PublishResponse = {
     ok: true,
@@ -73,20 +73,20 @@ export async function POST(
 
   if (!wantsPublic) {
     await audit("ok", "preview");
-    return NextResponse.json(body);
+    return withRateLimit(NextResponse.json(body), limit);
   }
 
   if (!writer.token) {
     body.warning = "Sign in with Google before publishing a public copy.";
     await audit("denied", "public:signed_out");
-    return NextResponse.json(body);
+    return withRateLimit(NextResponse.json(body), limit);
   }
 
   const identity = await fetchGoogleIdentity(writer.token);
   if (!mayPublishPublicly(identity?.email ?? null)) {
     body.warning = "Public publishing is limited to approved accounts for now. Your preview is ready.";
     await audit("denied", "public:not_allowed");
-    return NextResponse.json(body);
+    return withRateLimit(NextResponse.json(body), limit);
   }
 
   try {
@@ -98,5 +98,5 @@ export async function POST(
   }
   await audit(body.url ? "ok" : "error", body.url ? "public" : "public:upload_failed");
 
-  return NextResponse.json(body);
+  return withRateLimit(NextResponse.json(body), limit);
 }

@@ -17,7 +17,7 @@ export async function GET(
     });
   }
 
-  const html = readPreview(fileId);
+  const html = await readPreview(fileId);
   if (html == null) {
     return new NextResponse("This page has not been published.", {
       status: 404,
