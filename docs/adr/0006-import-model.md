@@ -63,7 +63,7 @@ For each import record who changed the Doc and when, from Drive `revisions.list`
 
 ### Detection
 
-"Changed in Google Doc" (#30) is `modifiedTime` newer than the base snapshot's `createdAt`-time of the Doc, read from one Drive `files.list` per site, not one `documents.get` per page. A Doc that Pagefirst itself just wrote is not "changed": the snapshot taken after each commit records the Doc's resulting `modifiedTime`.
+"Changed in Google Doc" (#30) is a Doc `modifiedTime` newer than the `modifiedTime` recorded with its base snapshot, read from one Drive `files.list` per site, not one `documents.get` per page. A Doc that Pagefirst itself just wrote is not "changed": the snapshot taken after each commit records the Doc's resulting `modifiedTime`.
 
 ### Dry run first
 
