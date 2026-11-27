@@ -45,5 +45,5 @@ export function POST(request: Request) {
       revisionId: payload.page.revisionId || null,
     });
     return NextResponse.json({ decision }, { status: 201 });
-  });
+  }, { idempotent: true });
 }

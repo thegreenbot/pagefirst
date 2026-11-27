@@ -114,9 +114,13 @@ describe("api keys", { skip: url ? false : "set TEST_DATABASE_URL to run Postgre
   test("last_used_at is recorded", async () => {
     const { key, record } = await issueBearer("sub-a", { name: "ci", scopes: ["pages:read"] });
     await verifyApiKey(key);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const [row] = await query<{ last_used_at: Date | null }>("SELECT last_used_at FROM api_keys WHERE id = $1", [record.id]);
-    assert.ok(row?.last_used_at);
+    // The write is fire-and-forget, so wait for it rather than guessing how long a busy runner needs.
+    let lastUsed: Date | null | undefined;
+    for (let attempt = 0; attempt < 40 && !lastUsed; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      [{ last_used_at: lastUsed }] = await query<{ last_used_at: Date | null }>("SELECT last_used_at FROM api_keys WHERE id = $1", [record.id]);
+    }
+    assert.ok(lastUsed);
   });
 
   test("a user is capped at the active-key limit", async () => {
