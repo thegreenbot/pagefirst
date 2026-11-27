@@ -14,8 +14,18 @@ Every Docs read and write must run as a Google identity that can see that Doc. P
 
 - A user signs in once. Pagefirst keeps their Google refresh token server-side (#16) and refreshes access tokens itself.
 - **API keys** (`pf_live_` + 43 random characters) are created by a signed-in user with a name, scopes, an optional list of Drive site folders, and an expiry (default 90 days, at most 365). Calls run as that user.
-- **MCP clients** get short-lived Pagefirst OAuth 2.1 tokens with the same scopes. Pagefirst is the authorization server. Google tokens never leave the server. This part lands after the key work and is tracked on #36.
+- **MCP clients** get short-lived Pagefirst OAuth 2.1 tokens with the same scopes. Pagefirst is the authorization server. Google tokens never leave the server.
 - Out of scope: a Google Workspace service account with domain-wide delegation. Revisit only on explicit request.
+
+### OAuth 2.1 for MCP
+
+- Metadata at `/.well-known/oauth-authorization-server` (RFC 8414) and `/.well-known/oauth-protected-resource` (RFC 9728).
+- Dynamic client registration (RFC 7591) at `/api/oauth/register`, public clients only (no client secret), 1 to 5 redirect URIs that are `https` or loopback `http`, matched exactly. Rate limited per caller.
+- `/oauth/authorize`: authorization code with PKCE `S256` only. The user signs in with Google, then sees a consent screen naming the client and its scopes. A bad client or redirect URI is shown as an error page and never redirected to. Default scope is read-only. The consent POST is same-origin only, and it answers with a 200 page that refreshes to the client, because Chrome applies `form-action` to redirects.
+- `/api/oauth/token`: `authorization_code` and `refresh_token` grants. Codes live 10 minutes and work once; replaying a code revokes the tokens it issued. Access tokens (`pf_at_`) live 1 hour. Refresh tokens (`pf_rt_`) live 30 days and rotate on each use; presenting a spent one revokes the whole family. Scopes can never widen on refresh.
+- `/api/oauth/revoke` (RFC 7009).
+- All token, code and refresh secrets are stored as SHA-256 only. Access tokens act through the same bearer path as API keys, with `client: "mcp"` in the audit log.
+- Not yet: the `resource` indicator (RFC 8707) is accepted but not bound to tokens, and there is no per-client management page. Both can follow with the MCP server (#41).
 
 ### Scopes
 

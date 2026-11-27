@@ -128,3 +128,18 @@ describe("API key routes (#36)", () => {
     );
   });
 });
+
+describe("OAuth endpoints (#36)", () => {
+  const post = (path: string, headers: Record<string, string>) =>
+    new Request(`https://app.example${path}`, { method: "POST", headers, body: "x=1" });
+
+  test("token and revoke take form bodies with no Origin", () => {
+    assert.deepEqual(checkMutation(post("/api/oauth/token", { "content-type": "application/x-www-form-urlencoded" }), "/api/oauth/token"), { ok: true });
+    assert.deepEqual(checkMutation(post("/api/oauth/revoke", { "content-type": "application/x-www-form-urlencoded" }), "/api/oauth/revoke"), { ok: true });
+  });
+
+  test("registration needs no Origin but must be JSON", () => {
+    assert.equal(checkMutation(post("/api/oauth/register", { "content-type": "text/plain" }), "/api/oauth/register").ok, false);
+    assert.deepEqual(checkMutation(post("/api/oauth/register", { "content-type": "application/json" }), "/api/oauth/register"), { ok: true });
+  });
+});

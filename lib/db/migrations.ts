@@ -305,4 +305,44 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX api_keys_sub_idx ON api_keys (sub, created_at DESC);
     `,
   },
+  {
+    id: 12,
+    name: "oauth 2.1 server for MCP clients",
+    sql: `
+      -- Pagefirst as an OAuth authorization server (#36, ADR 0003). Secrets are
+      -- stored as SHA-256 only. Clients are public (PKCE, no client secret).
+      CREATE TABLE oauth_clients (
+        client_id     text PRIMARY KEY,
+        name          text NOT NULL,
+        redirect_uris text[] NOT NULL,
+        created_at    timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE oauth_codes (
+        code_hash      text PRIMARY KEY,
+        client_id      text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+        sub            text NOT NULL REFERENCES users(sub) ON DELETE CASCADE,
+        scopes         text[] NOT NULL,
+        code_challenge text NOT NULL,
+        redirect_uri   text NOT NULL,
+        expires_at     timestamptz NOT NULL,
+        used_at        timestamptz
+      );
+
+      CREATE TABLE oauth_tokens (
+        token_hash text PRIMARY KEY,
+        kind       text NOT NULL CHECK (kind IN ('access', 'refresh')),
+        family_id  uuid NOT NULL,
+        client_id  text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+        sub        text NOT NULL REFERENCES users(sub) ON DELETE CASCADE,
+        scopes     text[] NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        expires_at timestamptz NOT NULL,
+        used_at    timestamptz,
+        revoked_at timestamptz
+      );
+      CREATE INDEX oauth_tokens_family_idx ON oauth_tokens (family_id);
+      CREATE INDEX oauth_tokens_sub_idx ON oauth_tokens (sub);
+    `,
+  },
 ];

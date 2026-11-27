@@ -29,6 +29,7 @@ export type AuditEventName =
   | "api_key.created"
   | "api_key.used"
   | "api_key.revoked"
+  | "oauth.authorized"
   | "job.started"
   | "job.completed"
   | "request.denied";
