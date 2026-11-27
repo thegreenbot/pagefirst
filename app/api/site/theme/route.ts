@@ -34,7 +34,7 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const site = await requireSite(request, "site-theme");
+  const site = await requireSite(request, "site-theme", "admin");
   if (!site.ok) return site.response;
   const read = await readJsonBody(request);
   if (!read.ok) return read.response;

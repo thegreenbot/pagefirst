@@ -51,6 +51,10 @@ Set them in the server environment. This repository does not include values for 
 
 Register the Google redirect URI as the site origin plus `/api/auth/callback`. In production that is `APP_URL` plus `/api/auth/callback`. On the local dev server that is `http://127.0.0.1:3847/api/auth/callback`.
 
+## Self-hosting
+
+[infra/instance](infra/instance/README.md) stands up a full instance (app, database, publish bucket and Worker, encryption key) from one config file, for self-hosting or a dedicated single-tenant instance. Upgrades are in [runbooks/instance-upgrade.md](runbooks/instance-upgrade.md).
+
 ## Branches
 
 `develop` is where features merge. Releases are `release/vX.Y.Z` branches merged into `main` and tagged `vX.Y.Z`. Direct pushes to `main` are blocked. Pull requests run lint, unit tests, and a security audit via `npm run ci`. The rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -61,7 +65,7 @@ The [threat model](docs/security/threat-model.md) lists what Pagefirst protects,
 
 ## License
 
-Pagefirst is licensed under the [Apache License 2.0](LICENSE), with a [Contributor License Agreement](CLA.md) for contributions. Enterprise features (SSO/SAML, SCIM) will live in a separate folder under a commercial license, which keeps its own `LICENSE`. The Pagefirst name is covered by a trademark policy, not by the license (see `NOTICE`).
+Pagefirst is licensed under the [Apache License 2.0](LICENSE), with a [Contributor License Agreement](CLA.md) for contributions. Enterprise features (SSO/SAML, SCIM) will live in a separate folder under a commercial license, which keeps its own `LICENSE`. The Pagefirst name is covered by the [trademark policy](TRADEMARKS.md), not by the license (see `NOTICE`).
 
 ## Plan
 

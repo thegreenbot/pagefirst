@@ -63,6 +63,24 @@ export async function canAccessSite(sub: string, siteId: string, minimum: Role =
   return rows[0] ? RANK[asRole(rows[0].role)] >= RANK[minimum] : false;
 }
 
+export type Membership = { org: Organization; role: Role; siteIds: string[] };
+
+/** The organizations a user belongs to with their role and sites, for the org switcher. Personal organization first. */
+export async function listMemberships(sub: string): Promise<Membership[]> {
+  const rows = await query<OrgRow & { role: string; site_ids: string[] | null }>(
+    `SELECT o.id, o.name, o.plan, o.created_at, m.role,
+            COALESCE(array_agg(s.id ORDER BY s.created_at) FILTER (WHERE s.id IS NOT NULL), '{}') AS site_ids
+       FROM org_members m
+       JOIN organizations o ON o.id = m.org_id
+       LEFT JOIN sites s ON s.org_id = o.id
+      WHERE m.sub = $1
+      GROUP BY o.id, o.name, o.plan, o.created_at, m.role
+      ORDER BY (o.id = $2) DESC, o.created_at`,
+    [sub, personalOrgId(sub)],
+  );
+  return rows.map((row) => ({ org: toOrganization(row), role: asRole(row.role), siteIds: row.site_ids ?? [] }));
+}
+
 export async function addMember(orgId: string, sub: string, role: Role): Promise<void> {
   if (!ROLES.includes(role)) throw new Error("Unknown role.");
   await query("INSERT INTO users (sub) VALUES ($1) ON CONFLICT (sub) DO NOTHING", [sub]);

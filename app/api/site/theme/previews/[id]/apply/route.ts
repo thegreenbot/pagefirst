@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   if (!isSafeId(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  const site = await requireSite(request, "site-theme");
+  const site = await requireSite(request, "site-theme", "admin");
   if (!site.ok) return site.response;
   try {
     const applied = await applyChange(site.siteId, id);
