@@ -9,5 +9,6 @@ workers_dev = false
 binding = "SITES"
 bucket_name = "pagefirst-sites"
 
-# Route every site subdomain of the publish domain to this Worker, e.g.:
-# routes = [{ pattern = "*.example.com/*", zone_name = "example.com" }]
+# Every site subdomain of the publish domain. The apex and www stay DNS-only
+# records pointing at Vercel, so the app never passes through this Worker.
+routes = [{ pattern = "*.pagefirst.io/*", zone_name = "pagefirst.io" }]
