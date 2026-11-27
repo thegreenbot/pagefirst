@@ -12,7 +12,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 | Doc contents | Google; parsed in memory per request | The user's writing. Also untrusted input to the editor and published HTML. |
 | Cloudflare API token | `CLOUDFLARE_API_TOKEN` in the deployment environment | Deploys the public site. |
 | Published site | Cloudflare Pages project `page-first` | Public face of every published page. |
-| Uploaded media | Process memory (`lib/media.ts`) | User images, served from `/api/media/[id]`. |
+| Uploaded media | Postgres `media` table when `DATABASE_URL` is set, else process memory (`lib/media.ts`) | User images, served from `/api/media/[id]`. |
 | Future API keys and refresh tokens | Not built yet (#16, #36) | Act for a user without a browser. |
 | CI and release pipeline | GitHub Actions | Builds what ships. |
 
@@ -42,7 +42,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 | --- | --- | --- | --- |
 | Cross-site POST writes to a Doc (CSRF) | `middleware.ts` refuses any non-GET `/api/*` request that is not same-origin (403) and any non-JSON body to commit or publish (415) | None for cookie routes. API-key routes must skip the origin check but keep rate limits | #13 (done), #36 |
 | Malformed or oversized commit ops reach Google | Runtime schema for every op, 200-op and 512 KB caps, field-path 400s | Same schema must be reused by API and MCP | #14, #9 |
-| Flooding commit, publish or upload | Per-caller rate limits with `Retry-After` | Buckets are per process and evict after 500 keys | #18 |
+| Flooding commit, publish or upload | Shared sliding-window limits (Upstash, else Postgres, else memory) per action, client type and caller (Google account, else IP), with `Retry-After` and `RateLimit-*` headers. Memory buckets only drop expired keys | If the shared store is down, limits fall back to per-instance memory. API and MCP budgets are separate but those clients are not built yet | #18 (done), #36 |
 | Stored XSS from Doc text into the editor or published HTML | `lib/page/render.ts` escapes text, attributes and ids; media served with `nosniff` and a sandbox CSP for SVG | No CSP or security headers on the app; no hostile-content render tests | #19 |
 | Uploaded file rendered as a page | MIME allow-list, markup sniffing, `nosniff`, sandbox CSP for SVG | No `Content-Disposition`; media kept in memory | #19, #18 |
 | Stolen session cookie | Opaque `__Host-pf_session` id, stored hashed; 7-day idle and 30-day absolute timeouts; sign-out deletes it and revokes the Google grant on the last session; "sign out everywhere" | Legacy `pf_access` mode remains when the database is not configured | #16 (done) |
@@ -66,7 +66,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 | One user overwrites or removes another user's published pages | Public publish requires a Google session and an email on `PUBLISH_ALLOWLIST`; each deploy carries the site's other pages forward | All allowed publishers still share one Pages project, and concurrent publishes can race | #85 |
 | Cloudflare token misuse | Token only in the deployment environment; error bodies are discarded | Token scope is not documented or enforced | #85 |
 | Script in published pages | Text is escaped at render | No CSP for published pages | #19 |
-| Published preview lost or served by the wrong instance | — | Previews live in process memory | #18 |
+| Published preview lost or served by the wrong instance | Postgres `previews` table with the revision id it was rendered from | Memory only when no database is configured | #18 (done) |
 
 ### API/MCP client ↔ app (planned)
 
@@ -86,7 +86,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 
 ## Shared prerequisite
 
-Most remaining gaps (#16, #17, #18, #20) need durable shared state. The choice of store is recorded in #10 and blocks them.
+Neon Postgres and Upstash were chosen in #10; #16, #17 and #18 are built on them. #20 still waits on image insert into Docs.
 
 ## Reporting
 
