@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { parseManifest, type ThemeManifest } from "./manifest";
 
@@ -16,14 +16,31 @@ export type ThemePackage = {
 const MAX_FILE_BYTES = 256 * 1024;
 
 function readText(file: string): string {
-  if (statSync(file).size > MAX_FILE_BYTES) throw new Error(`${file} is larger than ${MAX_FILE_BYTES} bytes`);
-  return readFileSync(file, "utf8");
+  // Read first and check the bytes we got, so there is no gap between a size check and the read.
+  const bytes = readFileSync(file);
+  if (bytes.length > MAX_FILE_BYTES) throw new Error(`${file} is larger than ${MAX_FILE_BYTES} bytes`);
+  return bytes.toString("utf8");
+}
+
+/** Reads a file that may not exist, without a separate existence check. */
+function readOptional(file: string): string | null {
+  try {
+    return readText(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
 }
 
 function liquidFiles(root: string, dir: string, out: Record<string, string>): void {
-  const full = path.join(root, dir);
-  if (!existsSync(full)) return;
-  for (const entry of readdirSync(full, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = readdirSync(path.join(root, dir), { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  for (const entry of entries) {
     const rel = path.posix.join(dir, entry.name);
     if (entry.isDirectory()) liquidFiles(root, rel, out);
     else if (entry.isFile() && entry.name.endsWith(".liquid")) {
@@ -47,7 +64,8 @@ export function loadThemeFromDir(root: string): ThemePackage {
       throw new Error(`${manifest.name}: blocks/${name}/block.liquid is missing`);
     }
     const css = path.join(root, "blocks", name, "block.css");
-    if (existsSync(css)) blockCss[name] = readText(css).trim();
+    const source = readOptional(css);
+    if (source !== null) blockCss[name] = source.trim();
   }
 
   const base = path.join(root, "styles", "base.css");
@@ -55,9 +73,9 @@ export function loadThemeFromDir(root: string): ThemePackage {
   return {
     manifest,
     templates,
-    baseCss: existsSync(base) ? readText(base).trim() : "",
+    baseCss: (readOptional(base) ?? "").trim(),
     blockCss,
-    tokens: existsSync(tokensFile) ? (JSON.parse(readText(tokensFile)) as Record<string, unknown>) : {},
+    tokens: JSON.parse(readOptional(tokensFile) ?? "{}") as Record<string, unknown>,
   };
 }
 
