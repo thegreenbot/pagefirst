@@ -399,4 +399,22 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idempotency_keys_expires_idx ON idempotency_keys (expires_at);
     `,
   },
+  {
+    id: 15,
+    name: "content audit decisions",
+    sql: `
+      -- Append-only history of what a person decided about a flagged page (#50).
+      CREATE TABLE content_audit_decisions (
+        id          bigserial PRIMARY KEY,
+        file_id     text NOT NULL,
+        actor_sub   text,
+        finding     text NOT NULL CHECK (finding IN ('stale', 'expired', 'thin', 'duplicate')),
+        decision    text NOT NULL CHECK (decision IN ('keep', 'update', 'merge', 'rewrite', 'noindex', 'remove')),
+        note        text NOT NULL DEFAULT '',
+        revision_id text,
+        created_at  timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX content_audit_decisions_file_idx ON content_audit_decisions (file_id, created_at DESC);
+    `,
+  },
 ];
