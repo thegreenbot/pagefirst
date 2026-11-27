@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { auditRequest } from "@/lib/audit-request";
 import { configErrorResponse, readJsonBody, requireSite } from "@/lib/site/request";
-import { lockedPackage, readSiteTheme, updateSiteTheme, type SiteThemeConfig } from "@/lib/site/theme-config";
+import { lockedPackage, orphans, readSiteTheme, updateSiteTheme, type SiteThemeConfig } from "@/lib/site/theme-config";
+import { tokenDefs } from "@/lib/theme/tokens";
 
 export const dynamic = "force-dynamic";
 
 async function describe(config: SiteThemeConfig) {
-  const { manifest } = await lockedPackage(config.lock.integrity);
+  const theme = await lockedPackage(config.lock.integrity);
+  const { manifest } = theme;
   return {
     config,
+    // Values the current theme no longer declares: kept, and shown to the author.
+    orphans: orphans(config, theme),
     theme: {
       name: manifest.name,
       version: manifest.version,
@@ -16,6 +20,7 @@ async function describe(config: SiteThemeConfig) {
       blocks: manifest.blocks,
       sectionStyles: manifest.sectionStyles ?? [],
       settings: manifest.settings ?? [],
+      tokens: tokenDefs(theme),
     },
   };
 }

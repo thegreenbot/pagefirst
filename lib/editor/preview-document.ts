@@ -30,7 +30,9 @@ export type ToPreview =
   | { pf: 1; type: "hello" }
   | { pf: 1; type: "render"; html: string }
   | { pf: 1; type: "select"; id: string | null; focus?: boolean }
-  | { pf: 1; type: "image"; src: string; blob: Blob };
+  | { pf: 1; type: "image"; src: string; blob: Blob }
+  /** New token CSS (#57): swapped into the tokens <style> without a render. */
+  | { pf: 1; type: "tokens"; css: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -154,6 +156,10 @@ export const BRIDGE_SOURCE = `(() => {
       for (const img of document.querySelectorAll("img[data-pf-src]")) {
         if (img.getAttribute("data-pf-src") === data.src) img.src = url;
       }
+    } else if (data.type === "tokens" && typeof data.css === "string") {
+      const style = document.querySelector("style[data-pf-tokens]");
+      if (style) style.textContent = data.css;
+      height();
     } else if (data.type === "select") {
       selected = typeof data.id === "string" ? data.id : null;
       mark();

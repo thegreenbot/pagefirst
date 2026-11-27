@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { databaseConfigured, query, transaction } from "@/lib/db/client";
 import type { ThemeManifest } from "@/lib/theme/manifest";
 import type { ThemePackage } from "@/lib/theme/package";
+import { orphanTokens, tokenDefs } from "@/lib/theme/tokens";
 import { bundledTheme, DEFAULT_THEME_NAME, isVersionRange, packageIntegrity, satisfies } from "@/lib/theme/registry";
 
 /**
@@ -60,7 +61,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Checks an update against the theme it will apply to. Throws ConfigError. */
-export function validateUpdate(input: unknown, manifest: ThemeManifest): ConfigUpdate {
+export function validateUpdate(input: unknown, manifest: ThemeManifest, theme?: Pick<ThemePackage, "tokens">): ConfigUpdate {
   if (!isRecord(input)) throw new ConfigError("body", "must be an object");
   const out: ConfigUpdate = {};
   for (const key of Object.keys(input)) {
@@ -85,6 +86,7 @@ export function validateUpdate(input: unknown, manifest: ThemeManifest): ConfigU
     out.tokens = {};
     for (const [key, value] of entries) {
       if (!TOKEN_KEY.test(key)) throw new ConfigError(`tokens.${key}`, "is not a valid token name");
+      if (theme && !Object.hasOwn(tokenDefs(theme), key)) throw new ConfigError(`tokens.${key}`, `is not a token of ${manifest.name}`);
       if (typeof value === "number" && Number.isFinite(value)) out.tokens[key] = value;
       else if (typeof value === "string" && value.length <= LIMITS.tokenValue && TOKEN_VALUE.test(value)) out.tokens[key] = value;
       else throw new ConfigError(`tokens.${key}`, "must be a number or a short CSS value");
@@ -268,12 +270,10 @@ export async function updateSiteTheme(siteId: string, input: unknown): Promise<S
   const targetName = typeof (input as { themeName?: unknown })?.themeName === "string" ? (input as { themeName: string }).themeName : current.themeName;
   const target = bundledTheme(targetName);
   if (!target) throw new ConfigError("themeName", "is not an available theme");
-  const update = validateUpdate(input, target.manifest);
+  const update = validateUpdate(input, target.manifest, target);
   const next: SiteThemeConfig = { ...current, ...update };
   if (update.themeName !== undefined && update.themeName !== current.themeName && update.versionRange === undefined) {
     next.versionRange = `^${target.manifest.version}`;
-    // Settings belong to a theme; a new theme starts from its own defaults.
-    if (update.settings === undefined) next.settings = {};
   }
   if (next.themeName !== current.themeName || next.versionRange !== current.versionRange) {
     next.lock = await lockTo(next.themeName, next.versionRange);
@@ -339,4 +339,16 @@ export async function renderContextFor(sub: string | null, fileId: string): Prom
   const config = await readSiteTheme(siteId);
   const [theme, presentation] = await Promise.all([lockedPackage(config.lock.integrity), readPresentation(siteId, fileId)]);
   return { theme, config, presentation };
+}
+
+/**
+ * Stored tokens and settings the locked theme does not declare, for example
+ * after a theme change. They are kept and reported, never silently dropped.
+ */
+export function orphans(config: Pick<SiteThemeConfig, "tokens" | "settings">, theme: ThemePackage): { tokens: string[]; settings: string[] } {
+  const declared = new Set((theme.manifest.settings ?? []).map((setting) => setting.id));
+  return {
+    tokens: orphanTokens(theme, config.tokens),
+    settings: Object.keys(config.settings).filter((id) => !declared.has(id)),
+  };
 }

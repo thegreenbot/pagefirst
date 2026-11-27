@@ -1,5 +1,7 @@
-body{background:#f4f0e6;color:#1c1915}
-main{max-width:40rem;margin:0 auto}
-h1,h2,h3,h4{font-family:Georgia,"Times New Roman",serif}
-.section{margin:2rem 0}
+body{background:var(--pf-color-paper);color:var(--pf-color-ink)}
+main{max-width:var(--pf-measure);margin:0 auto}
+h1,h2,h3,h4{font-family:var(--pf-font-heading)}
+.section{margin:var(--pf-space-section) 0}
+.section.highlight{border-left:4px solid var(--pf-color-brand);padding-left:1rem}
+.section.dark{background:var(--pf-color-ink);color:var(--pf-color-paper);padding:1rem}
 img{max-width:100%}

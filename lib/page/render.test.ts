@@ -70,7 +70,8 @@ describe("renderPublishHtml with hostile Doc content", () => {
         assert.doesNotMatch(tag, /(href|src)\s*=\s*["']?\s*javascript:/i, `javascript: URL in <${tag}>`);
       }
       assert.equal((html.match(/<script/gi) ?? []).length, 0);
-      assert.equal((html.match(/<\/style>/g) ?? []).length, 1, "the stylesheet cannot be closed early");
+      // Two style elements: the tokens and the page CSS (#57).
+      assert.equal((html.match(/<\/style>/g) ?? []).length, 2, "the stylesheet cannot be closed early");
       assert.equal((html.match(/<\/title>/g) ?? []).length, 1, "the title cannot be closed early");
     });
   }

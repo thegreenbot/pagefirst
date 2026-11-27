@@ -2,6 +2,7 @@ import { Liquid, Tag, Value, type Context, type Emitter, type TagToken, type Top
 import type { Block, Page, Prose } from "@/lib/page/types";
 import { CRITICAL_CSS_BUDGET_BYTES, minifyCss, pruneUnusedOptions } from "./css";
 import type { ThemePackage } from "./package";
+import { resolveTokens, tokensCss } from "./tokens";
 
 /**
  * The theme engine (docs/adr/0002-theme-package-contract.md). Renders a Page
@@ -19,11 +20,11 @@ export type RenderOptions = {
   /** The site's token values, over the theme's defaults (#56, #57). */
   tokens?: Record<string, unknown>;
   /**
-   * Builds the page's CSP from the exact <style> text, which is written into a
-   * <meta> tag. Server renders pass publishedCsp (lib/theme/csp.ts); the engine
+   * Builds the page's CSP from the exact text of each <style> element, written
+   * into a <meta> tag. Server renders pass publishedCsp (lib/theme/csp.ts); the engine
    * itself has no Node imports so the editor can render in the browser.
    */
-  csp?: (styleText: string, extra: { selfStyles: boolean }) => string;
+  csp?: (styleTexts: string[], extra: { selfStyles: boolean }) => string;
   /**
    * Server-side helpers for splitting CSS (#59). Without them, or in edit mode,
    * all of the page's CSS is inlined.
@@ -296,6 +297,7 @@ function planCss(
   usedOptions: Map<string, Set<string>>,
   firstSection: Set<string>,
   optimizer: RenderOptions["optimizer"],
+  tokens: string,
 ): { critical: string; deferred: RenderAsset | null } {
   const unused: Record<string, string[]> = {};
   for (const name of usedBlocks) {
@@ -308,11 +310,14 @@ function planCss(
   const blocks = Object.keys(theme.manifest.blocks)
     .filter((name) => usedBlocks.has(name))
     .map((name) => ({ name, css: prepare(theme.blockCss[name] ?? "") }));
-  const all = base + blocks.map((block) => block.css).join("");
-  if (!optimizer || optimizer.gzipSize(all) <= CRITICAL_CSS_BUDGET_BYTES) return { critical: all, deferred: null };
+  // Layers fix precedence whatever order the CSS arrives in (tokens < theme < blocks < customer).
+  const layer = (name: string, css: string) => (css ? `@layer ${name}{${css}}` : "");
+  const themeCss = layer("theme", base);
+  const all = themeCss + layer("blocks", blocks.map((block) => block.css).join(""));
+  if (!optimizer || optimizer.gzipSize(tokens + all) <= CRITICAL_CSS_BUDGET_BYTES) return { critical: all, deferred: null };
 
-  const critical = base + blocks.filter((block) => firstSection.has(block.name)).map((block) => block.css).join("");
-  const rest = blocks.filter((block) => !firstSection.has(block.name)).map((block) => block.css).join("");
+  const critical = themeCss + layer("blocks", blocks.filter((block) => firstSection.has(block.name)).map((block) => block.css).join(""));
+  const rest = layer("blocks", blocks.filter((block) => !firstSection.has(block.name)).map((block) => block.css).join(""));
   if (!rest) return { critical, deferred: null };
   return {
     critical,
@@ -392,21 +397,22 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
     template,
     sections,
   };
+  const resolvedTokens = resolveTokens(theme, options.tokens ?? {});
+  const tokenStyle = tokensCss(resolvedTokens);
   const scope = {
     page: pageView,
     site: { name: options.site?.name ?? "", url: options.site?.url ?? "", lang: options.site?.lang || "en" },
     theme: {
       name: manifest.name,
       version: manifest.version,
-      tokens: { ...theme.tokens, ...(options.tokens ?? {}) },
+      tokens: resolvedTokens,
       settings: { ...settingDefaults(theme), ...(options.settings ?? {}) },
     },
     mode,
   };
 
-  const css = planCss(theme, usedBlocks, usedOptions, firstSectionBlocks, mode === "edit" ? undefined : options.optimizer);
-  const styleText = css.critical;
-  const csp = options.csp ? options.csp(styleText, { selfStyles: !!css.deferred }) : "";
+  const css = planCss(theme, usedBlocks, usedOptions, firstSectionBlocks, mode === "edit" ? undefined : options.optimizer, tokenStyle);
+  const csp = options.csp ? options.csp([tokenStyle, css.critical], { selfStyles: !!css.deferred }) : "";
   const cspMeta = csp ? `\n<meta http-equiv="Content-Security-Policy" content="${csp.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">` : "";
   const description = pageView.description
     ? `\n<meta name="description" content="${escapeHtml(pageView.description)}">`
@@ -415,7 +421,8 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
 <meta name="viewport" content="width=device-width, initial-scale=1">${cspMeta}
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${escapeHtml(title)}</title>${description}
-<style>${styleText}</style>`;
+<style data-pf-tokens>${tokenStyle}</style>
+<style>${css.critical}</style>`;
 
   const foot = css.deferred ? `<link rel="stylesheet" href="/${css.deferred.path}">` : "";
   const renderState: RenderState = { mode, html, head, foot, footUsed: false };

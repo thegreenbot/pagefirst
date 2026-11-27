@@ -16,6 +16,7 @@ import {
 } from "@/lib/page/types";
 import { renderPage } from "@/lib/theme/engine";
 import { withPresentation } from "@/lib/theme/presentation";
+import { resolveTokens, tokenDefs, tokensCss as compileTokens, type TokenValues } from "@/lib/theme/tokens";
 import type { PagePresentation, SiteThemeConfig } from "@/lib/site/theme-config";
 import type { ThemePackage } from "@/lib/theme/package";
 
@@ -205,17 +206,30 @@ export function PageEditor({
     () => initialPresentation ?? { template: "page", sectionStyles: {} },
   );
 
+  const [brand, setBrand] = useState(() => ({
+    tokens: { ...(siteConfig?.tokens ?? {}) } as TokenValues,
+    settings: { ...(siteConfig?.settings ?? {}) },
+  }));
+  // Token changes swap CSS in the preview and never re-render templates (#57);
+  // a render for another reason picks up the latest values from here.
+  const tokensRef = useRef(brand.tokens);
+  tokensRef.current = brand.tokens;
+  const brandSave = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasSite = siteConfig !== null;
+
   modelRef.current = model;
   const dirty = model.pending.length > 0;
   const { draft } = model;
   const rendered = useMemo(() => {
     try {
-      const applied = withPresentation(draft, siteConfig, siteConfig ? presentation : null);
+      const site = hasSite ? { settings: brand.settings, tokens: tokensRef.current } : null;
+      const applied = withPresentation(draft, site, site ? presentation : null);
       return { ...renderPage(applied.page, theme, { ...applied.options, mode: "edit" }), error: "" };
     } catch (error) {
       return { html: "", csp: "", warnings: [], error: messageOf(error) };
     }
-  }, [draft, theme, siteConfig, presentation]);
+  }, [draft, theme, hasSite, presentation, brand.settings]);
+  const tokenStyle = useMemo(() => compileTokens(resolveTokens(theme, brand.tokens)), [theme, brand.tokens]);
   const located = locate(draft, selectedId);
 
   function edit(op: Op): boolean {
@@ -264,6 +278,26 @@ export function PageEditor({
     if (!node || node.tag === "img" || node.tag === "ul" || node.tag === "ol") return;
     if ((node.text ?? "") === text) return;
     edit({ op: "replaceText", nodeId: id, text });
+  }
+
+  function changeBrand(next: { tokens: TokenValues; settings: Record<string, string | number | boolean> }) {
+    setBrand(next);
+    if (brandSave.current) clearTimeout(brandSave.current);
+    brandSave.current = setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch("/api/site/theme", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(next),
+          });
+          const data = await readJson(response);
+          setStatus(response.ok ? "Brand saved." : errorText(data, response));
+        } catch (error) {
+          setStatus(messageOf(error));
+        }
+      })();
+    }, 600);
   }
 
   async function savePresentation(next: PagePresentation) {
@@ -476,6 +510,7 @@ export function PageEditor({
           ) : (
             <PreviewFrame
               html={rendered.html}
+              tokensCss={tokenStyle}
               nonce={nonce}
               selectedId={selectedId}
               focusToken={focusToken}
@@ -509,6 +544,7 @@ export function PageEditor({
               ))}
             </ul>
           ) : null}
+          {hasSite ? <BrandPanel theme={theme} brand={brand} onChange={changeBrand} /> : null}
           <MetadataEditor metadata={draft.metadata} onEdit={edit} />
         </aside>
       </main>
@@ -875,5 +911,95 @@ function Inspector({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function BrandPanel({
+  theme,
+  brand,
+  onChange,
+}: {
+  theme: ThemePackage;
+  brand: { tokens: TokenValues; settings: Record<string, string | number | boolean> };
+  onChange: (next: { tokens: TokenValues; settings: Record<string, string | number | boolean> }) => void;
+}) {
+  const defs = tokenDefs(theme);
+  const settings = theme.manifest.settings ?? [];
+  const inputClass = "mt-1 w-full border border-rule bg-paper px-2 py-1 text-sm text-ink";
+  const setToken = (name: string, value: string) => {
+    const tokens = { ...brand.tokens };
+    if (value === "" || value === String(defs[name]?.value)) delete tokens[name];
+    else tokens[name] = value;
+    onChange({ ...brand, tokens });
+  };
+  const setSetting = (id: string, value: string | number | boolean) => onChange({ ...brand, settings: { ...brand.settings, [id]: value } });
+
+  return (
+    <details className="mt-6 border border-rule" open>
+      <summary className="cursor-pointer bg-paper-2 px-4 py-3 text-sm text-ink">Brand</summary>
+      <div className="grid gap-3 border-t border-rule px-4 py-4">
+        {Object.entries(defs).map(([name, def]) => {
+          const value = String(brand.tokens[name] ?? def.value);
+          return (
+            <label key={name} className="block text-sm text-ink">
+              {def.label}
+              {def.type === "color" && /^#[0-9a-fA-F]{6}$/.test(value) ? (
+                <input
+                  type="color"
+                  aria-label={def.label}
+                  value={value}
+                  onChange={(event) => setToken(name, event.target.value)}
+                  className="mt-1 block h-8 w-16 border border-rule bg-paper"
+                />
+              ) : (
+                <input
+                  type="text"
+                  aria-label={def.label}
+                  defaultValue={value}
+                  onBlur={(event) => setToken(name, event.target.value.trim())}
+                  className={inputClass}
+                />
+              )}
+            </label>
+          );
+        })}
+        {settings.map((setting) => {
+          const value = brand.settings[setting.id] ?? setting.default;
+          if (setting.type === "boolean") {
+            return (
+              <label key={setting.id} className="flex items-center gap-2 text-sm text-ink">
+                <input type="checkbox" checked={value === true} onChange={(event) => setSetting(setting.id, event.target.checked)} />
+                {setting.label}
+              </label>
+            );
+          }
+          if (setting.type === "select") {
+            return (
+              <label key={setting.id} className="block text-sm text-ink">
+                {setting.label}
+                <select className={inputClass} value={String(value ?? "")} onChange={(event) => setSetting(setting.id, event.target.value)}>
+                  {(setting.options ?? []).map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          }
+          return (
+            <label key={setting.id} className="block text-sm text-ink">
+              {setting.label}
+              <input
+                type={setting.type === "number" ? "number" : setting.type === "color" ? "color" : "text"}
+                defaultValue={value === undefined ? "" : String(value)}
+                onBlur={(event) => setSetting(setting.id, setting.type === "number" ? Number(event.target.value) : event.target.value)}
+                className={inputClass}
+              />
+            </label>
+          );
+        })}
+      </div>
+    </details>
   );
 }

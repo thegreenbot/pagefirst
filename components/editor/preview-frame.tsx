@@ -22,6 +22,8 @@ function post(refs: FrameRefs, message: ToPreview) {
 type Props = {
   /** The theme engine's edit-mode HTML for the current draft. */
   html: string;
+  /** The current token CSS. Changes are swapped in without re-rendering (#57). */
+  tokensCss: string;
   nonce: string;
   selectedId: string | null;
   /** Bumped when the editor wants the selected node focused in the page. */
@@ -35,7 +37,7 @@ type Props = {
  * lib/editor/preview-document.ts). The document is written once; later drafts
  * are posted to the bridge, which swaps the body without a reload.
  */
-export function PreviewFrame({ html, nonce, selectedId, focusToken, onSelect, onText }: Props) {
+export function PreviewFrame({ html, tokensCss, nonce, selectedId, focusToken, onSelect, onText }: Props) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [initialDoc] = useState(() => previewDocument(html, nonce));
   // The HTML the frame shows now. Posting the same HTML again would swap the
@@ -109,6 +111,10 @@ export function PreviewFrame({ html, nonce, selectedId, focusToken, onSelect, on
   useEffect(() => {
     showHtml(html);
   }, [showHtml, html]);
+
+  useEffect(() => {
+    post(refs, { pf: 1, type: "tokens", css: tokensCss });
+  }, [refs, tokensCss]);
 
   useEffect(() => {
     const focus = focusToken !== focusedToken.current;
