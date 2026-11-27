@@ -12,7 +12,7 @@ export type Client = "ui" | "api" | "mcp";
 
 /** The Google calls the service makes, so tests and other callers can supply their own. */
 export type GoogleClient = {
-  listDocuments(token: string, folderIds?: readonly string[]): Promise<{ id: string; name: string }[]>;
+  listDocuments(token: string, folderIds?: readonly string[]): Promise<{ id: string; name: string; modifiedTime?: string }[]>;
   /** The folders a file sits directly in. Needed only to enforce a site-folder allow-list. */
   parentsOf?(token: string, fileId: string): Promise<string[]>;
   fetchDocument(token: string, fileId: string): Promise<import("@/lib/page/types").DocsDocument>;
