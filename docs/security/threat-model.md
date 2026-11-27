@@ -82,7 +82,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 | Malicious or vulnerable dependency | `npm audit` gate, Dependency review on PRs, Dependabot, CodeQL | Highs in Next's nested postcss are reported, not blocking, until the Next upgrade | #6 |
 | Compromised GitHub Action | Actions pinned to commit SHAs; workflow `permissions: contents: read` by default | — | #6 |
 | Secret committed to the repo | gitleaks on every PR and weekly over history; GitHub push protection; [rotation runbook](../../runbooks/secret-rotation.md) | — | #6 |
-| Unreviewed change reaches `main` or `develop` | Ruleset: PRs and 9 required checks, no force push or deletion | 0 required approvals while there is one maintainer (accepted for now); no tag ruleset for `v*` | #86 |
+| Unreviewed change reaches `main` or `develop` | Ruleset: PRs and 9 required checks, no force push or deletion; `v*` tags protected by a tag ruleset | 0 required approvals while there is one maintainer (accepted for now) | #21, #78 |
 
 ## Shared prerequisite
 
