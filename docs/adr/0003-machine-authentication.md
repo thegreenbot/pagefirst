@@ -24,7 +24,7 @@ Every Docs read and write must run as a Google identity that can see that Doc. P
 - `/oauth/authorize`: authorization code with PKCE `S256` only. The user signs in with Google, then sees a consent screen naming the client and its scopes. A bad client or redirect URI is shown as an error page and never redirected to. Default scope is read-only. The consent POST is same-origin only, and it answers with a 200 page that refreshes to the client, because Chrome applies `form-action` to redirects.
 - `/api/oauth/token`: `authorization_code` and `refresh_token` grants. Codes live 10 minutes and work once; replaying a code revokes the tokens it issued. Access tokens (`pf_at_`) live 1 hour. Refresh tokens (`pf_rt_`) live 30 days and rotate on each use; presenting a spent one revokes the whole family. Scopes can never widen on refresh.
 - `/api/oauth/revoke` (RFC 7009).
-- All token, code and refresh secrets are stored as SHA-256 only. Access tokens act through the same bearer path as API keys, with `client: "mcp"` in the audit log.
+- All token, code and refresh secrets are stored only as the same keyed HMAC-SHA256. Access tokens act through the same bearer path as API keys, with `client: "mcp"` in the audit log.
 - Not yet: the `resource` indicator (RFC 8707) is accepted but not bound to tokens, and there is no per-client management page. Both can follow with the MCP server (#41).
 
 ### Scopes

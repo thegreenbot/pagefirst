@@ -1,11 +1,12 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { hashSecret } from "@/lib/crypto/hash";
 import { query, transaction } from "@/lib/db/client";
 import { SCOPES, type Scope } from "@/lib/service/context";
 import { ACCESS_TTL_SECONDS, CODE_TTL_SECONDS, REFRESH_TTL_SECONDS, verifyPkce } from "./protocol";
 
 export const CLIENT_LIMIT_PER_HOUR = 30;
 
-const sha = (value: string) => createHash("sha256").update(value).digest("hex");
+const sha = hashSecret;
 const secret = (prefix: string) => `${prefix}${randomBytes(32).toString("base64url")}`;
 const asScopes = (values: string[]): Scope[] => values.filter((v): v is Scope => (SCOPES as readonly string[]).includes(v));
 

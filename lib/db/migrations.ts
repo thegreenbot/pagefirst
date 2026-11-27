@@ -310,7 +310,7 @@ export const MIGRATIONS: Migration[] = [
     name: "oauth 2.1 server for MCP clients",
     sql: `
       -- Pagefirst as an OAuth authorization server (#36, ADR 0003). Secrets are
-      -- stored as SHA-256 only. Clients are public (PKCE, no client secret).
+      -- stored only as a keyed hash. Clients are public (PKCE, no client secret).
       CREATE TABLE oauth_clients (
         client_id     text PRIMARY KEY,
         name          text NOT NULL,
