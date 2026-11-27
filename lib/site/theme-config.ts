@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { databaseConfigured, query, transaction } from "@/lib/db/client";
+import { ensurePersonalOrg } from "@/lib/tenant/orgs";
 import type { ThemeManifest } from "@/lib/theme/manifest";
 import type { ThemePackage } from "@/lib/theme/package";
 import { orphanTokens, tokenDefs } from "@/lib/theme/tokens";
@@ -183,7 +184,8 @@ export async function siteForOwner(sub: string): Promise<string> {
     if (again.rows[0]) return again.rows[0].id;
     const id = newSiteId();
     await client.query("INSERT INTO users (sub) VALUES ($1) ON CONFLICT (sub) DO NOTHING", [sub]);
-    await client.query("INSERT INTO sites (id, owner_sub) VALUES ($1, $2)", [id, sub]);
+    const orgId = await ensurePersonalOrg(client, sub);
+    await client.query("INSERT INTO sites (id, owner_sub, org_id) VALUES ($1, $2, $3)", [id, sub, orgId]);
     return id;
   });
 }
