@@ -5,7 +5,7 @@ import { checkRateLimit, withRateLimit } from "@/lib/guard";
 import { rateLimitHeaders } from "@/lib/ratelimit";
 import { readTextCapped } from "@/lib/http/body";
 import { beginIdempotent, finishIdempotent, hashRequest, releaseIdempotent, validIdempotencyKey } from "@/lib/idempotency";
-import { ServiceError, type ServiceContext, type ServiceErrorCode } from "@/lib/service";
+import { applySiteHeader, ServiceError, type ServiceContext, type ServiceErrorCode } from "@/lib/service";
 import { isMcpRequest } from "./mcp-marker";
 
 /**
@@ -115,6 +115,13 @@ export async function v1(
   const ctx: ServiceContext = { ...auth.ctx, requestId };
   // Calls made by the MCP server are audited as `mcp`, whatever the credential kind.
   if (isMcpRequest(request)) ctx.actor = { ...ctx.actor, client: "mcp" };
+  // X-Pagefirst-Site: act on an organization site the credential's owner may publish to (#45).
+  try {
+    await applySiteHeader(ctx, request);
+  } catch (error) {
+    if (!(error instanceof ServiceError)) throw error;
+    return apiError(requestId, apiCodeFor(error.code), error.message);
+  }
 
   // Mutating calls need an Idempotency-Key: a retried commit or publish runs once (#38).
   let claim: { credentialId: string; key: string } | null = null;
@@ -125,7 +132,7 @@ export async function v1(
     ctx.idempotencyKey = key;
     const read = await readTextCapped(request.clone(), IDEMPOTENT_BODY_MAX);
     if (!read.ok) return apiError(requestId, "payload_too_large", "Request body is too large.");
-    const hash = hashRequest(request.method, new URL(request.url).pathname, read.text);
+    const hash = hashRequest(request.method, new URL(request.url).pathname + (ctx.siteId ? `|site:${ctx.siteId}` : ""), read.text);
     let begun;
     try {
       begun = await beginIdempotent(auth.credential.id, key, hash);
