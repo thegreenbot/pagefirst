@@ -345,4 +345,39 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX oauth_tokens_sub_idx ON oauth_tokens (sub);
     `,
   },
+  {
+    id: 13,
+    name: "organizations, members, roles and plans",
+    sql: `
+      -- The tenant boundary for the hosted service (#45). Every site belongs to
+      -- one organization, and an organization carries the plan that gates paid
+      -- features (#65). Existing sites move into a personal organization.
+      CREATE TABLE organizations (
+        id         text PRIMARY KEY,
+        name       text NOT NULL,
+        plan       text NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'team', 'enterprise')),
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE org_members (
+        org_id     text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        sub        text NOT NULL REFERENCES users(sub) ON DELETE CASCADE,
+        role       text NOT NULL CHECK (role IN ('owner', 'admin', 'editor', 'viewer')),
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (org_id, sub)
+      );
+      CREATE INDEX org_members_sub_idx ON org_members (sub);
+
+      ALTER TABLE sites ADD COLUMN org_id text REFERENCES organizations(id) ON DELETE CASCADE;
+
+      -- One personal organization per existing site owner.
+      INSERT INTO organizations (id, name)
+        SELECT 'org_' || md5(owner_sub), 'Personal' FROM (SELECT DISTINCT owner_sub FROM sites) o;
+      INSERT INTO org_members (org_id, sub, role)
+        SELECT 'org_' || md5(owner_sub), owner_sub, 'owner' FROM (SELECT DISTINCT owner_sub FROM sites) o;
+      UPDATE sites SET org_id = 'org_' || md5(owner_sub);
+      ALTER TABLE sites ALTER COLUMN org_id SET NOT NULL;
+      CREATE INDEX sites_org_idx ON sites (org_id);
+    `,
+  },
 ];
