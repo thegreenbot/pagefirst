@@ -52,3 +52,19 @@ export function checkPushLine(line) {
   }
   return { ok: true };
 }
+
+const releaseBranch = new RegExp(`^(?:release|hotfix)/v${version}$`);
+
+/**
+ * Which branches a pull request may come from. Only release/vX.Y.Z and
+ * hotfix/vX.Y.Z may target main; any branch may target develop (features,
+ * agents, Dependabot, and main merged back after a release).
+ */
+export function checkPullRequestSource(base, head) {
+  if (base !== "main") return { ok: true };
+  if (releaseBranch.test(head)) return { ok: true };
+  return {
+    ok: false,
+    message: `pull requests into main must come from release/vX.Y.Z or hotfix/vX.Y.Z, not ${head}. Target develop instead.`,
+  };
+}

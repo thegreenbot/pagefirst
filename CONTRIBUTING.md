@@ -10,7 +10,7 @@ Cut `feature/<name>` from `develop`. Cursor agents use `cursor/<name>` the same 
 
 Cut `release/vX.Y.Z` from `develop`. `X.Y.Z` is semantic versioning (`MAJOR.MINOR.PATCH`), with an optional prerelease such as `release/v1.2.0-rc.1`. Set `package.json` `"version"` to that `X.Y.Z` on the release branch.
 
-Open the pull request against `main`. After it merges, tag the merge commit on `main`:
+Open the pull request against `main`. The **Branch policy** check fails a pull request into `main` from any other branch. After it merges, tag the merge commit on `main`:
 
 ```bash
 git checkout main
