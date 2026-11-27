@@ -27,5 +27,5 @@ export function POST(request: Request) {
     note.fileId = created.page.fileId;
     note.pagePath = created.page.path;
     return NextResponse.json(created, { status: 201 });
-  }, { audit: "page.create" });
+  }, { idempotent: true, audit: "page.create" });
 }

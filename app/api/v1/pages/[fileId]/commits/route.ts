@@ -20,5 +20,5 @@ export function POST(request: Request, context: { params: Promise<{ fileId: stri
     }
     note.resultRevisionId = result.page.revisionId;
     return result;
-  }, { audit: "page.commit" });
+  }, { idempotent: true, audit: "page.commit" });
 }

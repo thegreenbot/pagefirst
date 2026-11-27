@@ -15,5 +15,5 @@ export function POST(request: Request, context: { params: Promise<{ fileId: stri
     const { response, audit } = await publish(ctx, fileId, { revisionId: body.revisionId, public: body.public === true });
     Object.assign(note, { resultRevisionId: audit.resultRevisionId, siteId: audit.siteId, pagePath: audit.pagePath });
     return response;
-  }, { audit: "page.publish" });
+  }, { idempotent: true, audit: "page.publish" });
 }
