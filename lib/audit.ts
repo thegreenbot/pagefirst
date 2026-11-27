@@ -22,6 +22,7 @@ export type AuditEventName =
   | "site.theme.preview"
   | "site.theme.apply"
   | "site.theme.discard"
+  | "registry.publish"
   | "media.upload"
   | "drive.temp_share.created"
   | "drive.temp_share.removed"

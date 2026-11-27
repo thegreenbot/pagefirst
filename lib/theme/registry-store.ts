@@ -52,7 +52,13 @@ function checkPackage(theme: ThemePackage): { measured: Record<string, unknown>;
  * Checks, countersigns and stores a version. The archive must load as a valid
  * theme, meet its byte budgets, and be a version the registry has not seen.
  */
-export async function publishVersion(archive: Uint8Array, provenance: Provenance, scores: Record<string, unknown> | null = null): Promise<ThemeVersion> {
+export async function publishVersion(
+  archive: Uint8Array,
+  provenance: Provenance,
+  scores: Record<string, unknown> | null = null,
+  /** Called with the loaded manifest before anything is signed or stored; throws to refuse the publisher. */
+  authorize?: (manifest: ThemeManifest) => void,
+): Promise<ThemeVersion> {
   let theme: ThemePackage;
   try {
     theme = loadThemeFromFiles(unpackTheme(archive));
@@ -60,6 +66,7 @@ export async function publishVersion(archive: Uint8Array, provenance: Provenance
     throw new RegistryError(`The archive is not a valid theme: ${(error as Error).message}`);
   }
   const { name, version } = theme.manifest;
+  authorize?.(theme.manifest);
   if (!VERSION.test(version)) throw new RegistryError(`${version} is not a valid version`);
   const { measured, breaches } = checkPackage(theme);
   if (breaches.length) {

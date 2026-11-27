@@ -5,8 +5,15 @@
 
 export const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+/**
+ * Routes authenticated by a bearer token only, never a cookie, so a cross-site
+ * request gains nothing: the theme registry's trusted-publishing upload (#64),
+ * called from GitHub Actions with an OIDC token.
+ */
+const TOKEN_ROUTES = [/^\/api\/registry\/versions$/];
+
 /** Routes whose body, when there is one, must be JSON. */
-const JSON_ROUTES = [/^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/];
+const JSON_ROUTES = [/^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/, ...TOKEN_ROUTES];
 
 function configuredOrigin(): string | null {
   const value = process.env.APP_URL?.trim();
@@ -67,7 +74,8 @@ export type MutationCheck = { ok: true } | { ok: false; status: 403 | 415; error
  */
 export function checkMutation(request: Request, pathname: string): MutationCheck {
   if (SAFE_METHODS.has(request.method.toUpperCase())) return { ok: true };
-  if (!sameOrigin(request)) {
+  const tokenRoute = TOKEN_ROUTES.some((pattern) => pattern.test(pathname));
+  if (!tokenRoute && !sameOrigin(request)) {
     return { ok: false, status: 403, error: "Cross-site request refused." };
   }
   if (isJsonRoute(pathname) && hasBody(request) && !isJsonContentType(request.headers.get("content-type"))) {
