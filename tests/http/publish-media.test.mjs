@@ -43,9 +43,9 @@ describe("publish and media in sample mode", () => {
     assert.equal(preview.status, 200);
   });
 
-  test("refuses a cross-site publish while signed out", async () => {
+  test("refuses a cross-site publish", async () => {
     const res = await fetch(`${app.base}/api/pages/about/publish`, { method: "POST", headers: crossSite(client()) });
-    assert.equal(res.status, 401);
+    assert.equal(res.status, 403);
   });
 
   test("never publishes publicly while signed out", async () => {
@@ -107,9 +107,9 @@ describe("publish and media in sample mode", () => {
     assert.equal(res.status, 413);
   });
 
-  test("rejects a cross-site upload while signed out", async () => {
+  test("rejects a cross-site upload", async () => {
     const res = await upload(app.base, { bytes: PNG, type: "image/png", headers: crossSite(client()) });
-    assert.equal(res.status, 401);
+    assert.equal(res.status, 403);
   });
 
   test("rate-limits uploads to 8 a minute per caller", async () => {
@@ -153,7 +153,7 @@ describe("publish signed in to Google", () => {
   test("publishes a preview of a Doc", async () => {
     const res = await fetch(`${app.base}/api/pages/doc1/publish`, {
       method: "POST",
-      headers: { cookie: "pf_access=fake-token" },
+      headers: { cookie: "pf_access=fake-token", "sec-fetch-site": "same-origin" },
     });
     assert.equal(res.status, 200);
     assert.equal((await res.json()).sample, false);
@@ -162,7 +162,7 @@ describe("publish signed in to Google", () => {
   test("a failed public upload is a warning, not a leak", async () => {
     const res = await fetch(`${app.base}/api/pages/doc1/publish`, {
       method: "POST",
-      headers: { cookie: "pf_access=fake-token", "content-type": "application/json" },
+      headers: { cookie: "pf_access=fake-token", "content-type": "application/json", "sec-fetch-site": "same-origin" },
       body: JSON.stringify({ public: true }),
     });
     assert.equal(res.status, 200);
