@@ -15,6 +15,7 @@ import {
   type PageSummary,
 } from "@/lib/page/types";
 import { messageOf, realGoogle, toServiceError } from "./google";
+import { quotaSubject, withGoogleQuota } from "./quota";
 import { requireScope, ServiceError, type GoogleClient, type ServiceContext } from "./context";
 
 const sampleHolder = globalThis as typeof globalThis & {
@@ -59,7 +60,7 @@ export function isSample(ctx: ServiceContext): boolean {
 }
 
 export function googleFor(ctx: ServiceContext): GoogleClient {
-  return ctx.google ?? realGoogle;
+  return ctx.google ?? withGoogleQuota(realGoogle, quotaSubject(ctx));
 }
 
 /**
@@ -215,6 +216,12 @@ export async function commit(ctx: ServiceContext, fileId: string, baseRevisionId
     const typed = toServiceError(err, "Commit failed", (text) => redact(text, token));
     // Google failures reach callers as 502 unless they are a quota or a known unsupported op.
     const code = typed.code === "unsupported" || typed.code === "upstream_quota" ? typed.code : "upstream_error";
-    return { ok: false, status: code === "upstream_quota" ? 429 : typed.status === 501 ? 501 : 502, code, error: typed.message };
+    return {
+      ok: false,
+      status: code === "upstream_quota" ? 429 : typed.status === 501 ? 501 : 502,
+      code,
+      error: typed.message,
+      ...(code === "upstream_quota" && typed.retryAfterSeconds ? { retryAfterSeconds: typed.retryAfterSeconds } : {}),
+    };
   }
 }

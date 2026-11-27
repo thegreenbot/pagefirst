@@ -15,7 +15,7 @@ export function POST(request: Request, context: { params: Promise<{ fileId: stri
     const result = await commit(ctx, fileId, parsed.value.baseRevisionId, parsed.value.ops);
     if (!result.ok) {
       const code = result.status === 409 ? "conflict" : result.status === 404 ? "not_found" : result.status === 429 ? "upstream_quota" : result.status === 501 ? "unsupported" : result.status === 401 ? "unauthenticated" : result.status === 403 ? "forbidden" : result.status === 400 ? "invalid" : "upstream_error";
-      throw new ServiceError(code, result.error, { page: result.page });
+      throw new ServiceError(code, result.error, { page: result.page, retryAfterSeconds: result.retryAfterSeconds });
     }
     return result;
   });

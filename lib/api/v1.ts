@@ -87,6 +87,8 @@ export async function v1(request: Request, bucket: string, perMinute: number, ha
   }
   const limit = await checkRateLimit(bucket, `key:${auth.credential.id}`, perMinute, "api");
   if (!limit.ok) {
+    // One line per refusal, so 429s by credential can be counted from the logs (#39).
+    console.warn(JSON.stringify({ level: "warn", type: "rate_limited", bucket, credential: auth.credential.id, requestId }));
     return apiError(requestId, "rate_limited", "Too many requests.", null, rateLimitHeaders(limit));
   }
   const ctx: ServiceContext = { ...auth.ctx, requestId };
@@ -97,7 +99,14 @@ export async function v1(request: Request, bucket: string, perMinute: number, ha
     return withRateLimit(response, limit);
   } catch (error) {
     if (error instanceof ServiceError) {
-      return apiError(requestId, apiCodeFor(error.code), error.message, error.page ? { revisionId: error.page.revisionId } : null);
+      const retryAfter = error.retryAfterSeconds;
+      return apiError(
+        requestId,
+        apiCodeFor(error.code),
+        error.message,
+        error.page ? { revisionId: error.page.revisionId } : retryAfter ? { retryAfterSeconds: retryAfter } : null,
+        retryAfter ? { "Retry-After": String(retryAfter), ...rateLimitHeaders(limit) } : {},
+      );
     }
     console.error("v1 handler failed", requestId, error instanceof Error ? error.name : "unknown");
     return apiError(requestId, "upstream_error", "The request could not be completed.");
