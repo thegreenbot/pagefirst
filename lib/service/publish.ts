@@ -10,7 +10,8 @@ import { isCurrentRender, recordRenderKey, renderKey } from "@/lib/site/render-k
 import { renderContextFor, siteForOwner } from "@/lib/site/theme-config";
 import { recordSitePage } from "@/lib/site/theme-preview";
 import { requireScope, ServiceError, type ServiceContext } from "./context";
-import { getPage } from "./pages";
+import { getPage, googleFor } from "./pages";
+import { snapshotPage } from "./snapshots";
 
 export type PublishResponse = PublishResult & { warning?: string; unchanged?: boolean };
 
@@ -102,6 +103,7 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
       // Theme change previews sample these pages, and applying one republishes them (#66).
       await recordSitePage(published.siteId, { fileId, path: payload.page.path, revisionId: payload.page.revisionId });
       await recordRenderKey(published.siteId, fileId, key);
+      await snapshotPage(ctx, googleFor(ctx), payload.page, "publish");
       response.url = published.url;
       return audit("ok", "public", published.siteId);
     } catch (error) {
@@ -119,8 +121,10 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
 
   try {
     const url = await uploadToCloudflare(payload.page.path, html);
-    if (url) response.url = url;
-    else response.warning = "Cloudflare did not return a page address.";
+    if (url) {
+      response.url = url;
+      if (!payload.sample) await snapshotPage(ctx, googleFor(ctx), payload.page, "publish");
+    } else response.warning = "Cloudflare did not return a page address.";
   } catch (error) {
     response.warning = error instanceof Error ? error.message : "Cloudflare upload failed";
   }

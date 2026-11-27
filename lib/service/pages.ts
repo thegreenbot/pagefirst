@@ -1,3 +1,4 @@
+import { snapshotPage } from "./snapshots";
 import { buildAdoptRequests, buildCommitRequests } from "@/lib/google/commit";
 import { googleConfigured } from "@/lib/google/config";
 import { redact } from "@/lib/log";
@@ -191,7 +192,10 @@ async function commitLive(ctx: ServiceContext, token: string, fileId: string, ba
 
   if (requests.length > 0) await google.batchUpdate(token, fileId, requests);
   const updated = await google.fetchDocument(token, fileId);
-  return { ok: true, page: parseDocument(updated, slugify(updated.title ?? "")), sample: false };
+  const page = parseDocument(updated, slugify(updated.title ?? ""));
+  // The next import diffs the Doc against this (#29).
+  await snapshotPage(ctx, google, page, "commit");
+  return { ok: true, page, sample: false };
 }
 
 /**

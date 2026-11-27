@@ -78,3 +78,24 @@ export async function parentsOf(token: string, fileId: string): Promise<string[]
   const json = (await res.json()) as { parents?: string[] };
   return json.parents ?? [];
 }
+
+export type DriveMeta = {
+  modifiedTime: string | null;
+  /** Who last changed the file, when Drive returns it. */
+  lastModifiedBy: { name: string | null; email: string | null } | null;
+};
+
+/** A Doc's last-modified time and last editor: one small Drive call, no Docs read. */
+export async function driveMeta(token: string, fileId: string): Promise<DriveMeta> {
+  const res = await authorized(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=modifiedTime%2ClastModifyingUser(displayName%2CemailAddress)`,
+    token,
+  );
+  if (!res.ok) throw new Error(`Drive read failed (${res.status})`);
+  const json = (await res.json()) as { modifiedTime?: string; lastModifyingUser?: { displayName?: string; emailAddress?: string } };
+  const who = json.lastModifyingUser;
+  return {
+    modifiedTime: json.modifiedTime ?? null,
+    lastModifiedBy: who ? { name: who.displayName ?? null, email: who.emailAddress ?? null } : null,
+  };
+}
