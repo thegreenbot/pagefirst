@@ -1,6 +1,6 @@
 # Contributing
 
-Pagefirst is licensed under the [Apache License 2.0](LICENSE). Before your first pull request is merged, agree to the [Contributor License Agreement](CLA.md) by adding this line to the pull request description:
+Pagefirst is licensed under the [Apache License 2.0](LICENSE). Before your first pull request is merged, agree to the [Contributor License Agreement](CLA.md). A bot comments on your first pull request; sign by replying with this exact sentence:
 
 > I have read the Pagefirst Contributor License Agreement and agree to it.
 
@@ -58,3 +58,5 @@ Secrets live only in the deployment environment, never in the repository. That c
 - Do not commit `.env` files. `.gitignore` excludes `.env*`, `*.pem` and Terraform state (`*.tfstate`, `.terraform/`).
 - The **Secret scan** workflow runs gitleaks on every pull request and push, and over the full history weekly. GitHub secret scanning with push protection blocks known token formats at push time.
 - If a secret reaches a commit, treat it as leaked even if the commit is removed: rotate it with [runbooks/secret-rotation.md](runbooks/secret-rotation.md), then follow [runbooks/incident-response.md](runbooks/incident-response.md).
+
+Your signature is recorded against your GitHub account on the `cla-signatures` branch of this repository, so you sign once. The maintainer and automation accounts (for example Dependabot) are exempt. If the check is stale, comment `recheck`.
