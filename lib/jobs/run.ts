@@ -3,6 +3,7 @@ import { applyOps } from "@/lib/page/ops";
 import { isSafeId } from "@/lib/page/types";
 import { validateCommitRequest } from "@/lib/page/validate";
 import { commit, getPage, publish, ServiceError, type ServiceContext } from "@/lib/service";
+import { deliverDue } from "./webhook";
 import { claimItems, finishItem, readJobById, releaseItem, settleJob, type ItemStatus, type JobItem, type JobRow } from "./store";
 
 /**
@@ -120,4 +121,10 @@ export async function advanceJob(jobId: string, budgetMs = 20_000): Promise<{ do
     // A quota hit means stop for now; the next pass resumes after the pacing window.
     if (paused) return { done: false };
   }
+}
+
+/** Advances a job, then sends any completion webhooks that are due (this job's, or an earlier one's retry). */
+export async function advanceAndNotify(jobId: string): Promise<void> {
+  await advanceJob(jobId).catch(() => undefined);
+  await deliverDue(3).catch(() => undefined);
 }

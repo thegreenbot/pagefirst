@@ -552,4 +552,19 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE site_pages ADD COLUMN render_key text;
     `,
   },
+  {
+    id: 22,
+    name: "job webhooks",
+    sql: `
+      -- Completion webhook for a bulk job (#40). The secret is sealed; a job
+      -- queues its delivery when it settles, and attempts back off from there.
+      ALTER TABLE jobs
+        ADD COLUMN webhook_url text,
+        ADD COLUMN webhook_secret text,
+        ADD COLUMN webhook_state text NOT NULL DEFAULT 'none' CHECK (webhook_state IN ('none', 'pending', 'sent', 'failed')),
+        ADD COLUMN webhook_attempts integer NOT NULL DEFAULT 0,
+        ADD COLUMN webhook_next_at timestamptz;
+      CREATE INDEX jobs_webhook_due_idx ON jobs (webhook_next_at) WHERE webhook_state = 'pending';
+    `,
+  },
 ];

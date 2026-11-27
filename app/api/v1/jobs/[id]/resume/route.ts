@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { v1 } from "@/lib/api/v1";
-import { advanceJob } from "@/lib/jobs/run";
+import { advanceAndNotify } from "@/lib/jobs/run";
 import { jobCounts, resumeJob } from "@/lib/jobs/store";
 import { ServiceError } from "@/lib/service";
 
@@ -13,7 +13,7 @@ export function POST(request: Request, context: { params: Promise<{ id: string }
     const { id } = await context.params;
     const job = await resumeJob(id, `${credential.kind}:${credential.id}:${ctx.actor.sub}`);
     if (!job) throw new ServiceError("not_found", "Job not found.");
-    after(() => advanceJob(job.id).catch(() => undefined));
+    after(() => advanceAndNotify(job.id));
     return { job: { id: job.id, status: job.status }, counts: await jobCounts(job.id) };
   });
 }

@@ -106,7 +106,7 @@ export const openapi = {
         summary: "Start a bulk job (commit, publish, import, import_and_publish) over many pages",
         description: "Runs in the background as the credential's owner. Poll GET /jobs/{id}. dryRun reports what would happen without writing. Each item succeeds or fails on its own.",
         parameters: [idempotencyKey],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["kind", "items"], properties: { kind: { type: "string", enum: ["commit", "publish", "import", "import_and_publish"] }, items: { type: "array", items: { type: "object", required: ["fileId"], properties: { fileId: { type: "string" } } } }, dryRun: { type: "boolean" }, policy: { type: "object" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["kind", "items"], properties: { kind: { type: "string", enum: ["commit", "publish", "import", "import_and_publish"] }, items: { type: "array", items: { type: "object", required: ["fileId"], properties: { fileId: { type: "string" } } } }, dryRun: { type: "boolean" }, policy: { type: "object" }, webhook: { type: "object", required: ["url", "secret"], description: "Called once with a signed JSON body when the job finishes: Pagefirst-Signature is t=<unix>,v1=HMAC-SHA256(secret, \"<t>.<body>\"). https and a public host only; retried 4 times with backoff.", properties: { url: { type: "string" }, secret: { type: "string", minLength: 16 } } } } } } } },
         responses: { "202": { description: "Accepted" }, default: error },
       },
     },
