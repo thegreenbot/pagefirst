@@ -9,6 +9,10 @@
 if [ "$VERCEL_ENV" = "production" ]; then
   exit 1
 fi
+# Dependency bot branches get CI, not a preview.
+case "$VERCEL_GIT_COMMIT_REF" in
+  dependabot/*) echo "Dependabot branch; skipping the preview build."; exit 0 ;;
+esac
 git diff --quiet HEAD^ HEAD -- \
   'app/**/*.tsx' 'app/**/*.css' 'app/*.tsx' 'app/*.css' \
   'components' 'themes' 'public' \
