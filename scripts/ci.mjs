@@ -5,7 +5,9 @@ const steps = [
   { name: "lint", command: ["npm", "run", "lint"] },
   { name: "unit tests", command: ["npm", "test"] },
   // Prints the full report. Gate fails on critical; Next 15's nested postcss
-  // highs are reported until a Next 16 upgrade clears them.
+  // highs are reported until a Next 16 upgrade clears them. On GitHub, the
+  // Dependency review workflow also fails PRs that add high or critical
+  // advisories. This step stays so the gate holds on paths without it.
   { name: "security audit", command: ["npm", "audit", "--audit-level=critical"] },
 ];
 
