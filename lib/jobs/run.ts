@@ -65,18 +65,20 @@ export async function runItem(job: JobRow, item: JobItem, googleToken: string): 
       return { status: "ok", result: { revisionId: result.page.revisionId } };
     }
     // publish
+    // `latest` publishes whatever the page is now (a site-wide republish); otherwise the revision is pinned.
+    const latest = item.params.latest === true;
     const revisionId = typeof item.params.revisionId === "string" ? item.params.revisionId : undefined;
-    if (!revisionId) return { status: "error", code: "invalid", message: "revisionId is required: publish a pinned revision." };
+    if (!revisionId && !latest) return { status: "error", code: "invalid", message: "revisionId is required: publish a pinned revision." };
     if (job.dryRun) {
       const payload = await getPage(ctx, item.fileId);
       if (!payload) return { status: "error", code: "not_found", message: "Page not found." };
-      if (payload.page.revisionId !== revisionId) {
+      if (revisionId && payload.page.revisionId !== revisionId) {
         return { status: "conflict", code: "revision_conflict", message: "The page changed since that revision.", result: { revisionId: payload.page.revisionId } };
       }
-      return { status: "ok", result: { dryRun: true, revisionId } };
+      return { status: "ok", result: { dryRun: true, revisionId: payload.page.revisionId } };
     }
-    const { response, audit } = await publish(ctx, item.fileId, { revisionId, public: item.params.public === true });
-    return { status: "ok", result: { revisionId: audit.resultRevisionId, previewPath: response.previewPath, url: response.url } };
+    const { response, audit } = await publish(ctx, item.fileId, { ...(revisionId ? { revisionId } : {}), public: item.params.public === true });
+    return { status: "ok", result: { revisionId: audit.resultRevisionId, previewPath: response.previewPath, url: response.url, ...(response.unchanged ? { unchanged: true } : {}) } };
   } catch (error) {
     return fromError(error, item);
   }

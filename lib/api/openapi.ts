@@ -122,6 +122,32 @@ export const openapi = {
     "/jobs/{id}/report": {
       get: { operationId: "getJobReport", summary: "Per-item report as JSON, or CSV with ?format=csv", parameters: [jobId], responses: { "200": { description: "OK" }, default: error } },
     },
+    "/themes": {
+      get: { operationId: "listThemes", summary: "Themes a site can choose", responses: { "200": { description: "OK" }, default: error } },
+    },
+    "/site/theme": {
+      get: { operationId: "getSiteTheme", summary: "The site's theme, lock, tokens and settings", responses: { "200": { description: "OK" }, default: error } },
+      put: {
+        operationId: "setSiteTheme",
+        summary: "Change the site's theme, tokens or settings",
+        description: "Published pages keep their old look until POST /site/republish.",
+        parameters: [idempotencyKey],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { themeName: { type: "string" }, versionRange: { type: "string" }, tokens: { type: "object" }, settings: { type: "object" }, customCss: { type: "string" }, templateOverrides: { type: "object" }, locks: { type: "array", items: { type: "string" } } } } } } },
+        responses: { "200": { description: "OK" }, default: error },
+      },
+    },
+    "/site/theme/preview": {
+      post: { operationId: "previewSiteTheme", summary: "Dry-run a theme change over a sample of published pages", requestBody: { required: true, content: { "application/json": { schema: { type: "object" } } } }, responses: { "200": { description: "OK" }, default: error } },
+    },
+    "/site/republish": {
+      post: {
+        operationId: "republishSite",
+        summary: "Republish every published page as one job",
+        description: "Pages whose revision, theme and site config are unchanged since their last publish are not rendered or uploaded again (item result unchanged: true).",
+        parameters: [idempotencyKey],
+        responses: { "202": { description: "Accepted" }, default: error },
+      },
+    },
   },
   components: {
     securitySchemes: { bearer: { type: "http", scheme: "bearer", description: `API key (pf_live_...) or OAuth access token. Scopes: ${SCOPES.join(", ")}.` } },
