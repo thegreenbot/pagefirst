@@ -10,6 +10,7 @@ import { savePreview, savePreviewAssets } from "@/lib/publish/preview";
 import { getPage } from "@/lib/store";
 import { renderContextFor } from "@/lib/site/theme-config";
 import { auditRequest } from "@/lib/audit-request";
+import { publishToOwnSite, sitePublishingEnabled } from "@/lib/publish/sites";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,7 @@ export async function POST(
     previewPath: `/published/${fileId}`,
   };
 
-  const audit = (outcome: "ok" | "denied" | "error", errorCode: string | null) =>
+  const audit = (outcome: "ok" | "denied" | "error", errorCode: string | null, siteId: string | null = null) =>
     auditRequest(request, {
       event: "page.publish",
       outcome,
@@ -74,6 +75,8 @@ export async function POST(
       resultRevisionId: payload.page.revisionId,
       status: 200,
       errorCode,
+      siteId,
+      pagePath: wantsPublic ? payload.page.path : null,
     });
 
   if (!wantsPublic) {
@@ -87,6 +90,25 @@ export async function POST(
     return withRateLimit(NextResponse.json(body), limit);
   }
 
+  if (sitePublishingEnabled()) {
+    // Each account publishes to its own site (#94), so no allow-list is needed.
+    if (!writer.sub || payload.sample) {
+      body.warning = "Sign in with Google before publishing a public copy.";
+      await audit("denied", "public:no_account");
+      return withRateLimit(NextResponse.json(body), limit);
+    }
+    try {
+      const published = await publishToOwnSite(writer.sub, payload.page.path, { html, csp, assets });
+      body.url = published.url;
+      await audit("ok", "public", published.siteId);
+    } catch (error) {
+      body.warning = error instanceof Error ? error.message : "Publishing failed";
+      await audit("error", "public:upload_failed");
+    }
+    return withRateLimit(NextResponse.json(body), limit);
+  }
+
+  // Stopgap until R2 is configured: one shared Pages project, allow-listed accounts only (#85).
   const identity = await fetchGoogleIdentity(writer.token);
   if (!mayPublishPublicly(identity?.email ?? null)) {
     body.warning = "Public publishing is limited to approved accounts for now. Your preview is ready.";

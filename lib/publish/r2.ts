@@ -7,7 +7,7 @@ import { candidateKeys } from "@/lib/publish/site-worker";
  */
 
 const API = "https://api.cloudflare.com/client/v4";
-const SITE_ID = /^[a-z0-9][a-z0-9_-]{0,62}$/;
+const SITE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/;
 const HOSTNAME = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
 type R2Config = { accountId: string; bucket: string; token: string };
@@ -63,6 +63,16 @@ async function send(method: "PUT" | "DELETE", key: string, init: { body?: string
 export async function putSitePage(siteId: string, pagePath: string, html: string, csp: string): Promise<string> {
   const key = siteObjectKey(siteId, pagePath);
   await send("PUT", key, { body: html, contentType: "text/html; charset=utf-8", csp });
+  return key;
+}
+
+/** Writes a content-addressed asset (e.g. deferred CSS) a page links to. */
+export async function putSiteAsset(siteId: string, assetPath: string, body: string, contentType: string): Promise<string> {
+  if (!SITE_ID.test(siteId)) throw new Error("Invalid site id");
+  const keys = candidateKeys(`/${assetPath}`);
+  if (!keys || keys.length !== 1 || !keys[0]) throw new Error("Invalid asset path");
+  const key = `sites/${siteId}/${keys[0]}`;
+  await send("PUT", key, { body, contentType });
   return key;
 }
 
