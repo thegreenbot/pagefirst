@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { databaseConfigured, query } from "@/lib/db/client";
 
 type MediaRecord = {
   mime: string;
@@ -49,9 +50,25 @@ function copyBytes(bytes: Uint8Array): Uint8Array {
   return copy;
 }
 
-export function saveMedia(bytes: Uint8Array, mime: string): { id: string } {
+function checkSize(bytes: Uint8Array): void {
   if (bytes.byteLength > MAX_BYTES) {
     throw new Error("Image is too large");
+  }
+}
+
+/**
+ * Stores an uploaded image (#18). With Postgres, every instance can serve it
+ * and the cap of MAX_UPLOADS is per account; without it, images live in this
+ * process's memory with one shared cap.
+ */
+export async function saveMedia(bytes: Uint8Array, mime: string, ownerKey = "local"): Promise<{ id: string }> {
+  checkSize(bytes);
+  if (databaseConfigured()) {
+    const [row] = await query<{ uploads: number }>("SELECT count(*)::int AS uploads FROM media WHERE owner_key = $1", [ownerKey]);
+    if ((row?.uploads ?? 0) >= MAX_UPLOADS) throw new Error("Image library is full");
+    const id = newMediaId();
+    await query("INSERT INTO media (id, owner_key, mime, bytes) VALUES ($1, $2, $3, $4)", [id, ownerKey, mime, Buffer.from(bytes)]);
+    return { id };
   }
   let uploads = 0;
   for (const id of media.keys()) {
@@ -66,7 +83,11 @@ export function saveMedia(bytes: Uint8Array, mime: string): { id: string } {
   return { id };
 }
 
-export function readMedia(id: string): { mime: string; bytes: Uint8Array } | null {
+export async function readMedia(id: string): Promise<{ mime: string; bytes: Uint8Array } | null> {
+  if (databaseConfigured() && id !== SEED_ID) {
+    const [row] = await query<{ mime: string; bytes: Buffer }>("SELECT mime, bytes FROM media WHERE id = $1", [id]);
+    return row ? { mime: row.mime, bytes: new Uint8Array(row.bytes) } : null;
+  }
   const found = media.get(id);
   if (!found) return null;
   return { mime: found.mime, bytes: copyBytes(found.bytes) };
