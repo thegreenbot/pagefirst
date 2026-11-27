@@ -48,9 +48,11 @@ resource "github_repository_ruleset" "branches" {
 }
 
 # Release tags (vX.Y.Z) are created by the maintainer when a release or hotfix
-# merges into main, and are never moved or deleted.
-resource "github_repository_ruleset" "release_tags" {
-  name        = "release tags"
+# merges into main, and are never moved or deleted. A ruleset's bypass list
+# covers all of its rules, so creation (admins may bypass) and immutability
+# (nobody may bypass) are two rulesets.
+resource "github_repository_ruleset" "release_tags_create" {
+  name        = "release tags: create"
   repository  = var.repository
   target      = "tag"
   enforcement = "active"
@@ -69,7 +71,24 @@ resource "github_repository_ruleset" "release_tags" {
   }
 
   rules {
-    creation         = true
+    creation = true
+  }
+}
+
+resource "github_repository_ruleset" "release_tags_immutable" {
+  name        = "release tags: immutable"
+  repository  = var.repository
+  target      = "tag"
+  enforcement = "active"
+
+  conditions {
+    ref_name {
+      include = ["refs/tags/v*"]
+      exclude = []
+    }
+  }
+
+  rules {
     update           = true
     deletion         = true
     non_fast_forward = true

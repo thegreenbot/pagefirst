@@ -5,7 +5,8 @@ The branch and tag rulesets for `thegreenbot/pagefirst`, as Terraform. Change th
 | Ruleset | Targets | Rules |
 | --- | --- | --- |
 | `main and develop` | `main`, `develop` | Pull request required with 0 approvals and resolved conversations; the checks in `variables.tf` must pass; no force pushes; no deletion; no bypass |
-| `release tags` | `v*` tags | Only repository admins may create them; nobody may move or delete them |
+| `release tags: create` | `v*` tags | Only repository admins may create them |
+| `release tags: immutable` | `v*` tags | Nobody may move, force-push or delete them; no bypass |
 
 Required approvals is 0 because the repository has one maintainer, and GitHub never lets an author approve their own pull request. Raise it, and turn on code-owner review, once there is a second maintainer.
 
@@ -19,11 +20,12 @@ cd infra/github
 terraform init
 ```
 
-The rulesets already exist, so import them once before the first apply. Their ids are at the end of each ruleset's URL under *Settings → Rules → Rulesets*:
+The rulesets already exist, so import them once before the first apply. Each id is at the end of the ruleset's URL under *Settings → Rules → Rulesets*:
 
 ```bash
 terraform import github_repository_ruleset.branches pagefirst:27814339
-terraform import github_repository_ruleset.release_tags pagefirst:<release tags id>
+terraform import github_repository_ruleset.release_tags_create pagefirst:28255174
+terraform import github_repository_ruleset.release_tags_immutable pagefirst:28255219
 terraform plan    # should show no changes, or only the drift you expect
 terraform apply
 ```
