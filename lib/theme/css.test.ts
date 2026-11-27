@@ -113,9 +113,9 @@ describe("page CSS", () => {
     assert.equal(inline, "@layer theme{body{margin:0}}@layer blocks{.hero{a:b}}");
     assert.equal(assets.length, 1);
     assert.match(assets[0].path, /^assets\/pf\/[a-f0-9]{16}\.css$/);
-    assert.ok(assets[0].body.startsWith("@layer blocks{.cards .r0"));
-    assert.ok(assets[0].body.endsWith(".quote{e:f}}"));
-    assert.ok(gzipSync(assets[0].body).length > 10 * 1024);
+    assert.ok(String(assets[0].body).startsWith("@layer blocks{.cards .r0"));
+    assert.ok(String(assets[0].body).endsWith(".quote{e:f}}"));
+    assert.ok(gzipSync(String(assets[0].body)).length > 10 * 1024);
     // Loaded at the end of <body>, so it never blocks the first paint.
     assert.ok(html.includes(`<link rel="stylesheet" href="/${assets[0].path}">\n</body>`));
     assert.match(csp, /style-src 'self' 'sha256-/);

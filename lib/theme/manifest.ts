@@ -24,6 +24,17 @@ export type ManifestSetting = {
   options?: string[];
 };
 
+export type FontSubset = "latin" | "latin-ext" | "cyrillic" | "cyrillic-ext" | "greek" | "vietnamese";
+
+export type ManifestFont = {
+  family: string;
+  weight?: number | string;
+  style?: "normal" | "italic";
+  preload?: boolean;
+  files: { src: string; subset: FontSubset; unicodeRange: string }[];
+  fallback: { local: string[]; sizeAdjust?: string; ascentOverride?: string; descentOverride?: string; lineGapOverride?: string };
+};
+
 export type ThemeManifest = {
   name: string;
   version: string;
@@ -35,6 +46,7 @@ export type ThemeManifest = {
   settings?: ManifestSetting[];
   permissions?: { connect?: string[]; img?: string[]; frame?: string[] };
   integrations?: string[];
+  fonts?: ManifestFont[];
   budgets?: Record<string, number>;
 };
 
@@ -79,8 +91,46 @@ export function parseManifest(value: unknown): ThemeManifest {
       }
     }
   }
+  if (value.fonts !== undefined) parseFonts(value.fonts);
   if (value.settings !== undefined && !Array.isArray(value.settings)) {
     throw new Error("theme.json: settings must be a list");
   }
   return value as ThemeManifest;
+}
+
+const FAMILY = /^[A-Za-z0-9 -]{1,64}$/;
+const FONT_SRC = /^assets\/fonts\/[a-z0-9-]+\.woff2$/;
+const UNICODE_RANGE = /^U\+[0-9A-Fa-f?-]+(,\s*U\+[0-9A-Fa-f?-]+)*$/;
+const PERCENT = /^[0-9]{1,3}(\.[0-9]{1,3})?%$/;
+const SUBSETS = new Set(["latin", "latin-ext", "cyrillic", "cyrillic-ext", "greek", "vietnamese"]);
+
+/** Font declarations end up inside CSS, so every value is checked against a strict shape. */
+function parseFonts(fonts: unknown): void {
+  if (!Array.isArray(fonts)) throw new Error("theme.json: fonts must be a list");
+  let preloads = 0;
+  for (const font of fonts) {
+    if (!isRecord(font) || typeof font.family !== "string" || !FAMILY.test(font.family)) {
+      throw new Error("theme.json: each font needs a family of letters, digits, spaces or hyphens");
+    }
+    const where = `font "${font.family}"`;
+    if (font.weight !== undefined && !/^[0-9]{3}( [0-9]{3})?$/.test(String(font.weight))) throw new Error(`theme.json: ${where} weight is invalid`);
+    if (font.style !== undefined && font.style !== "normal" && font.style !== "italic") throw new Error(`theme.json: ${where} style is invalid`);
+    if (font.preload === true) preloads += 1;
+    if (!Array.isArray(font.files) || font.files.length === 0) throw new Error(`theme.json: ${where} needs files`);
+    for (const file of font.files) {
+      if (!isRecord(file) || typeof file.src !== "string" || !FONT_SRC.test(file.src)) throw new Error(`theme.json: ${where} file src must be assets/fonts/<name>.woff2`);
+      if (!SUBSETS.has(String(file.subset))) throw new Error(`theme.json: ${where} subset is invalid`);
+      if (typeof file.unicodeRange !== "string" || !UNICODE_RANGE.test(file.unicodeRange)) throw new Error(`theme.json: ${where} unicodeRange is invalid`);
+    }
+    const fallback = font.fallback;
+    if (!isRecord(fallback) || !Array.isArray(fallback.local) || fallback.local.length === 0 || !fallback.local.every((name) => typeof name === "string" && FAMILY.test(name))) {
+      throw new Error(`theme.json: ${where} needs fallback.local font names`);
+    }
+    for (const key of ["sizeAdjust", "ascentOverride", "descentOverride", "lineGapOverride"]) {
+      if (fallback[key] !== undefined && !(typeof fallback[key] === "string" && PERCENT.test(fallback[key] as string))) {
+        throw new Error(`theme.json: ${where} fallback.${key} must be a percentage`);
+      }
+    }
+  }
+  if (preloads > 1) throw new Error("theme.json: at most one font may be preloaded");
 }

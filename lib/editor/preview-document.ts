@@ -189,7 +189,7 @@ export function previewCsp(nonce: string): string {
     `script-src 'nonce-${nonce}'`,
     "style-src 'unsafe-inline'",
     "img-src blob: data:",
-    "font-src 'self'",
+    "font-src 'self' data:",
     "base-uri 'none'",
     "form-action 'none'",
   ].join("; ");

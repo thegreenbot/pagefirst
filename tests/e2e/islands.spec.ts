@@ -56,7 +56,7 @@ test("a visible island downloads its module only when it scrolls into view", asy
     const asset = assets.find((candidate) => `/${candidate.path}` === url.pathname);
     if (!asset) return route.fulfill({ status: 404, body: "" });
     fetched.push(url.pathname);
-    await route.fulfill({ body: asset.body, headers: { "Content-Type": asset.contentType } });
+    await route.fulfill({ body: typeof asset.body === "string" ? asset.body : Buffer.from(asset.body), headers: { "Content-Type": asset.contentType } });
   });
   const errors: string[] = [];
   page.on("console", (message) => {

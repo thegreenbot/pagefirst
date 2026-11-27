@@ -54,7 +54,7 @@ function tagsIn(html: string): string[] {
   return [...html.matchAll(/<([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g)].map((m) => `${m[1].toLowerCase()}${m[2]}`);
 }
 
-const ALLOWED_TAGS = new Set(["html", "head", "meta", "title", "style", "body", "main", "div", "h1", "h2", "h3", "h4", "p", "ul", "ol", "li", "img"]);
+const ALLOWED_TAGS = new Set(["html", "head", "meta", "title", "style", "body", "main", "div", "h1", "h2", "h3", "h4", "p", "ul", "ol", "li", "img", "link"]);
 
 describe("renderPublishHtml with hostile Doc content", () => {
   for (const payload of HOSTILE) {
