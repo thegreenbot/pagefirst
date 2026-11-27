@@ -116,7 +116,10 @@ export default async function Home({
                     <span className="block font-serif text-2xl tracking-tight">
                       {page.title}
                     </span>
-                    <span className="mt-1 block text-sm text-ink-soft">{page.path}</span>
+                    <span className="mt-1 block text-sm text-ink-soft">
+                      {page.path}
+                      {page.changed ? <span className="ml-3 border border-rule bg-paper-2 px-2 py-0.5 text-xs text-ink">Changed in Google Doc</span> : null}
+                    </span>
                   </Link>
                 </li>
               ))}
