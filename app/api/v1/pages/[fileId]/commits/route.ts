@@ -18,5 +18,5 @@ export function POST(request: Request, context: { params: Promise<{ fileId: stri
       throw new ServiceError(code, result.error, { page: result.page, retryAfterSeconds: result.retryAfterSeconds });
     }
     return result;
-  });
+  }, { idempotent: true });
 }

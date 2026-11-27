@@ -13,5 +13,5 @@ export function POST(request: Request, context: { params: Promise<{ fileId: stri
     if (typeof body?.revisionId !== "string" || !body.revisionId) throw new ServiceError("invalid", "revisionId is required: publish a pinned revision.");
     const { response } = await publish(ctx, fileId, { revisionId: body.revisionId, public: body.public === true });
     return response;
-  });
+  }, { idempotent: true });
 }
