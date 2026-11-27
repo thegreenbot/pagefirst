@@ -12,7 +12,7 @@ const fileId = { name: "fileId", in: "path", required: true, schema: { type: "st
 
 export const openapi = {
   openapi: "3.1.0",
-  info: { title: "Pagefirst API", version: "1.0.0", description: "Create, edit and publish pages. Bearer credentials only; cookies are never accepted." },
+  info: { title: "Pagefirst API", version: "1.0.0", description: "Create, edit and publish pages. Bearer credentials only; cookies are never accepted. Each operation has its own per-credential budget a minute (reads 120, create 20, commit 60, publish 6). Every response carries RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset; a 429 adds Retry-After. Google quota is separate: calls to Google are paced per account, and when the wait would be too long the call fails with google_quota, Retry-After set and nothing sent to Google." },
   servers: [{ url: "/api/v1" }],
   security: secured,
   paths: {
@@ -89,6 +89,12 @@ export const openapi = {
   },
   components: {
     securitySchemes: { bearer: { type: "http", scheme: "bearer", description: `API key (pf_live_...) or OAuth access token. Scopes: ${SCOPES.join(", ")}.` } },
+    headers: {
+      "RateLimit-Limit": { description: "Calls allowed a minute for this operation.", schema: { type: "integer" } },
+      "RateLimit-Remaining": { description: "Calls left in the current window.", schema: { type: "integer" } },
+      "RateLimit-Reset": { description: "Seconds until the window frees a slot.", schema: { type: "integer" } },
+      "Retry-After": { description: "On a 429 (rate_limited or google_quota): seconds to wait before retrying.", schema: { type: "integer" } },
+    },
     responses: {
       Error: {
         description: "Every failure has this shape; X-Request-Id is on every response.",

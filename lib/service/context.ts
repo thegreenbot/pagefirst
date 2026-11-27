@@ -71,13 +71,16 @@ export class ServiceError extends Error {
   readonly code: ServiceErrorCode;
   readonly status: number;
   readonly page?: Page;
+  /** For quota refusals: seconds until the caller should retry (becomes Retry-After). */
+  readonly retryAfterSeconds?: number;
 
-  constructor(code: ServiceErrorCode, message: string, options: { page?: Page } = {}) {
+  constructor(code: ServiceErrorCode, message: string, options: { page?: Page; retryAfterSeconds?: number } = {}) {
     super(message);
     this.name = "ServiceError";
     this.code = code;
     this.status = STATUS[code];
     this.page = options.page;
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 }
 

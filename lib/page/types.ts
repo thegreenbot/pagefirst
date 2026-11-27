@@ -120,6 +120,8 @@ export type CommitFailure = {
   code?: string;
   error: string;
   page?: Page;
+  /** Set on a quota refusal: seconds until the caller should retry. */
+  retryAfterSeconds?: number;
 };
 
 export type CommitResult = CommitSuccess | CommitFailure;

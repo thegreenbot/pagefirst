@@ -1,6 +1,8 @@
 import { batchUpdate, createDocument, fetchDocument, listDocuments, parentsOf } from "@/lib/google/docs";
 import { ServiceError, type GoogleClient } from "./context";
 
+const DEFAULT_RETRY_AFTER = 30;
+
 export const realGoogle: GoogleClient = { listDocuments, fetchDocument, createDocument, batchUpdate, parentsOf };
 
 /** Reads the status out of the Docs wrapper's "... failed (404)" message, once, here. */
@@ -20,7 +22,7 @@ export function toServiceError(err: unknown, fallback: string, redactToken: (tex
   const status = upstreamStatus(err);
   if (status === 404) return new ServiceError("not_found", message);
   if (status === 403 || status === 401) return new ServiceError("forbidden", message);
-  if (status === 429) return new ServiceError("upstream_quota", message);
+  if (status === 429) return new ServiceError("upstream_quota", message, { retryAfterSeconds: DEFAULT_RETRY_AFTER });
   if (message.includes("does not support")) return new ServiceError("unsupported", message);
   return new ServiceError("upstream_error", message);
 }
