@@ -163,4 +163,13 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    id: 6,
+    name: "site hostnames and publish audit",
+    sql: `
+      -- Each site's label under PUBLISH_DOMAIN (#94), assigned on first public publish.
+      ALTER TABLE sites ADD COLUMN subdomain text UNIQUE;
+      ALTER TABLE audit_events ADD COLUMN site_id text, ADD COLUMN page_path text;
+    `,
+  },
 ];

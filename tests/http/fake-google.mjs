@@ -84,6 +84,12 @@ globalThis.fetch = async function fakeGoogleFetch(input, init) {
     return json({ error: "unexpected Google call in test" }, 500);
   }
 
+  // R2 object writes (#94): accepted when they carry the bucket token "fake-r2-token".
+  if (url.host === "api.cloudflare.com" && /\/r2\/buckets\/[^/]+\/objects\//.test(url.pathname)) {
+    if (bearer(init, input) !== "Bearer fake-r2-token") return json({ success: false }, 403);
+    return json({ success: true });
+  }
+
   if (url.host.endsWith("cloudflare.com")) {
     return json({ success: false, errors: [{ message: "no network in tests" }] }, 500);
   }

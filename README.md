@@ -34,12 +34,14 @@ The server reads these variables:
 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
+- `R2_BUCKET`, `R2_API_TOKEN` — the sites bucket and a token that can only read and write that bucket.
+- `PUBLISH_DOMAIN` — the domain sites are published under, e.g. `example.com` gives each site `p1a2b3c4d5.example.com`. With R2 and `DATABASE_URL`, each account publishes to its own site. See [runbooks/site-publishing.md](runbooks/site-publishing.md).
+- `CLOUDFLARE_API_TOKEN` — only for the old shared Pages project, used while R2 is not configured.
 - `DATABASE_URL` — optional Neon Postgres connection string (set by the Vercel Neon integration). Without it the app runs without sessions in the database, audit or shared state. See [ADR 0001](docs/adr/0001-persistent-store.md).
 - `KV_REST_API_URL`, `KV_REST_API_TOKEN` — optional Upstash Redis for shared rate limits (set by the Vercel Upstash integration). Without them, limits are shared through Postgres when `DATABASE_URL` is set, otherwise kept per process.
 - `TOKEN_ENCRYPTION_KEY` — 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts stored Google refresh tokens.
-- `PUBLISH_ALLOWLIST` — Google emails (comma- or space-separated) allowed to publish a public copy to Cloudflare. Unset means nobody can; previews still work. This is a stopgap until each site gets its own publish target (#85).
+- `PUBLISH_ALLOWLIST` — only used while R2 is not configured: Google emails (comma- or space-separated) allowed to publish to the shared Pages project. Unset means nobody can; previews still work (#85 stopgap).
 - `AUDIT_ADMIN_EMAILS` — optional Google emails (comma- or space-separated) that may export every account's audit events from `GET /api/audit?from=…&to=…`. Everyone signed in can read their own events.
 - `APP_URL` — the public origin with no trailing slash, such as your Vercel production domain. Set it in production: sign-in redirects and the secure session cookie use it. When it is unset, the app uses the request's own origin (https for `*.vercel.app`).
 
