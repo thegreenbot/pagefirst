@@ -48,7 +48,7 @@ describe("theme config validation", () => {
       { templateOverrides: { "../secret": "x" } },
       { locks: ["everything"] },
       { versionRange: ">=1" },
-      { themeName: "@evil/theme" },
+      { themeName: "../evil" },
       { extra: 1 },
       null,
     ];

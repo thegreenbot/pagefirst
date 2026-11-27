@@ -17,7 +17,7 @@ import {
 import { renderPage } from "@/lib/theme/engine";
 import { withPresentation } from "@/lib/theme/presentation";
 import { resolveTokens, tokenDefs, tokensCss as compileTokens, type TokenValues } from "@/lib/theme/tokens";
-import type { PagePresentation, SiteThemeConfig } from "@/lib/site/theme-config";
+import type { AvailableTheme, PagePresentation, SiteThemeConfig } from "@/lib/site/theme-config";
 import type { ThemePackage } from "@/lib/theme/package";
 
 const buttonClass =
@@ -181,6 +181,7 @@ export function PageEditor({
   nonce,
   siteConfig,
   presentation: initialPresentation,
+  themes = [],
 }: {
   initial: Page;
   sample: boolean;
@@ -189,6 +190,8 @@ export function PageEditor({
   /** Null when there is no stored site (sample mode or no database). */
   siteConfig: Pick<SiteThemeConfig, "settings" | "tokens"> | null;
   presentation: PagePresentation | null;
+  /** Themes the site can switch to (#64); empty without a stored site. */
+  themes?: AvailableTheme[];
 }) {
   const [model, setModel] = useState(() => createModel(initial));
   const modelRef = useRef(model);
@@ -543,6 +546,9 @@ export function PageEditor({
                 <li key={warning}>{warning}</li>
               ))}
             </ul>
+          ) : null}
+          {hasSite && themes.length > 1 ? (
+            <ThemePicker current={theme.manifest.name} themes={themes} disabled={dirty} onStatus={setStatus} />
           ) : null}
           {hasSite ? <BrandPanel theme={theme} brand={brand} onChange={changeBrand} /> : null}
           <MetadataEditor metadata={draft.metadata} onEdit={edit} />
@@ -911,6 +917,62 @@ function Inspector({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Switches the site to another theme (#64). The new theme's package is
+ * verified and loaded on the server, so the editor reloads to pick it up;
+ * that is why uncommitted edits block a switch.
+ */
+function ThemePicker({
+  current,
+  themes,
+  disabled,
+  onStatus,
+}: {
+  current: string;
+  themes: AvailableTheme[];
+  disabled: boolean;
+  onStatus: (message: string) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  async function choose(themeName: string) {
+    if (themeName === current) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/site/theme", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ themeName }),
+      });
+      if (response.ok) {
+        window.location.reload();
+        return;
+      }
+      onStatus(errorText(await readJson(response), response));
+    } catch (error) {
+      onStatus(messageOf(error));
+    }
+    setSaving(false);
+  }
+  return (
+    <label className="mt-6 block text-sm text-ink">
+      Theme
+      <select
+        className="mt-1 w-full border border-rule bg-paper px-2 py-1 text-sm text-ink"
+        value={current}
+        disabled={disabled || saving}
+        onChange={(event) => void choose(event.target.value)}
+      >
+        {themes.map((option) => (
+          <option key={option.name} value={option.name}>
+            {option.name.replace(/^@pagefirst\//, "")} {option.version}
+          </option>
+        ))}
+      </select>
+      {disabled ? <span className="mt-1 block text-xs text-ink-soft">Commit your edits before switching themes.</span> : null}
+    </label>
   );
 }
 
