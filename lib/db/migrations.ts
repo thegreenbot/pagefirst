@@ -85,4 +85,52 @@ export const MIGRATIONS: Migration[] = [
         FOR EACH STATEMENT EXECUTE FUNCTION audit_events_append_only();
     `,
   },
+  // id 4 is reserved for #18 (rate limits, previews, media).
+  {
+    id: 5,
+    name: "sites and site theme config",
+    sql: `
+      -- Minimal site identity (#56). #94 adds hostname and publish target columns.
+      CREATE TABLE sites (
+        id         text PRIMARY KEY,
+        owner_sub  text NOT NULL REFERENCES users(sub) ON DELETE CASCADE,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX sites_owner_idx ON sites (owner_sub, created_at);
+
+      -- Immutable theme package snapshots, addressed by integrity hash, so a
+      -- site's lock keeps rendering with the same bytes after an app deploy.
+      CREATE TABLE theme_packages (
+        integrity  text PRIMARY KEY,
+        name       text NOT NULL,
+        version    text NOT NULL,
+        package    jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      -- Presentation lives in the app, never in the Doc (#56).
+      CREATE TABLE site_themes (
+        site_id            text PRIMARY KEY REFERENCES sites(id) ON DELETE CASCADE,
+        theme_name         text NOT NULL,
+        version_range      text NOT NULL,
+        tokens             jsonb NOT NULL DEFAULT '{}',
+        settings           jsonb NOT NULL DEFAULT '{}',
+        custom_css         text NOT NULL DEFAULT '',
+        template_overrides jsonb NOT NULL DEFAULT '{}',
+        locks              jsonb NOT NULL DEFAULT '[]',
+        locked_version     text NOT NULL,
+        locked_integrity   text NOT NULL REFERENCES theme_packages(integrity),
+        updated_at         timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE page_presentation (
+        site_id        text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        file_id        text NOT NULL,
+        template       text NOT NULL DEFAULT 'page',
+        section_styles jsonb NOT NULL DEFAULT '{}',
+        updated_at     timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (site_id, file_id)
+      );
+    `,
+  },
 ];
