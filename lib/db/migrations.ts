@@ -85,4 +85,35 @@ export const MIGRATIONS: Migration[] = [
         FOR EACH STATEMENT EXECUTE FUNCTION audit_events_append_only();
     `,
   },
+  {
+    id: 4,
+    name: "shared rate limits, previews and media",
+    sql: `
+      -- Counters are disposable, so skip the write-ahead log.
+      CREATE UNLOGGED TABLE rate_limits (
+        key          text NOT NULL,
+        window_start bigint NOT NULL,
+        count        integer NOT NULL,
+        PRIMARY KEY (key, window_start)
+      );
+
+      CREATE TABLE previews (
+        file_id     text PRIMARY KEY,
+        revision_id text,
+        html        text NOT NULL,
+        -- Per-page CSP for the theme engine (#54); null means the default policy.
+        csp         text,
+        updated_at  timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE media (
+        id         text PRIMARY KEY,
+        owner_key  text NOT NULL,
+        mime       text NOT NULL,
+        bytes      bytea NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX media_owner_idx ON media (owner_key, created_at);
+    `,
+  },
 ];

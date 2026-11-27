@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { callerKey, checkRateLimit, requireGoogleWriter, sameOrigin, tooManyRequests } from "@/lib/guard";
+import { callerKey, checkRateLimit, requireGoogleWriter, sameOrigin, tooManyRequests, withRateLimit } from "@/lib/guard";
 import { googleConfigured } from "@/lib/google/config";
 import { saveMedia } from "@/lib/media";
 import { auditRequest } from "@/lib/audit-request";
@@ -21,10 +21,11 @@ export async function POST(request: Request) {
   if (!googleConfigured() && !sameOrigin(request)) {
     return NextResponse.json({ error: "Sign in with Google to do this." }, { status: 401 });
   }
-  const limit = checkRateLimit(`media:${callerKey(writer.token, request)}`, 8);
+  const caller = callerKey(writer.token, request, writer.sub);
+  const limit = await checkRateLimit("media", caller, 8);
   if (!limit.ok) {
     await auditRequest(request, { event: "request.denied", outcome: "denied", status: 429, errorCode: "rate_limited:media" });
-    return tooManyRequests("Too many uploads. Wait a minute.", limit.retryAfterSeconds);
+    return tooManyRequests("Too many uploads. Wait a minute.", limit);
   }
 
   const form = await request.formData();
@@ -44,9 +45,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { id } = saveMedia(bytes, mime);
+    const { id } = await saveMedia(bytes, mime, caller);
     await auditRequest(request, { event: "media.upload", outcome: "ok", fileId: id, status: 200 });
-    return NextResponse.json({ id, driveFileId: id });
+    return withRateLimit(NextResponse.json({ id, driveFileId: id }), limit);
   } catch (error) {
     if (error instanceof Error && error.message === "Image is too large") {
       return NextResponse.json({ error: error.message }, { status: 413 });
