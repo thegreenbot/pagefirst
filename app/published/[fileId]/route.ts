@@ -16,18 +16,19 @@ export async function GET(
     });
   }
 
-  const html = readPreview(fileId);
-  if (html == null) {
+  const preview = await readPreview(fileId);
+  if (preview == null) {
     return new NextResponse("This page has not been published.", {
       status: 404,
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
   }
 
-  return new NextResponse(html, {
+  return new NextResponse(preview.html, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
+      "Content-Security-Policy": `${preview.csp}; frame-ancestors 'none'`,
     },
   });
 }

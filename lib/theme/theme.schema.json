@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pagefirst.dev/schemas/theme.json",
+  "title": "Pagefirst theme manifest",
+  "description": "theme.json at the root of a theme package. See docs/adr/0002-theme-package-contract.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "version", "engine", "templates", "blocks"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": {
+      "description": "Package name, @scope/name.",
+      "type": "string",
+      "pattern": "^@[a-z0-9][a-z0-9-]{0,38}/[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "version": {
+      "description": "Semver version of this package.",
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-[0-9A-Za-z.-]+)?$"
+    },
+    "engine": {
+      "description": "Render API major version the theme targets.",
+      "const": 1
+    },
+    "description": { "type": "string", "maxLength": 500 },
+    "templates": {
+      "description": "Page templates. Each key maps to layouts/<key>.liquid.",
+      "type": "object",
+      "required": ["page"],
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "maxProperties": 50,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "blocks": {
+      "description": "Blocks authors can use in the Doc. Each key maps to blocks/<key>/.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "maxProperties": 200,
+      "additionalProperties": { "$ref": "#/$defs/block" }
+    },
+    "sectionStyles": {
+      "description": "Section style names the editor offers.",
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 50,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "settings": {
+      "description": "Theme settings, edited as a form in the editor.",
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/setting" }
+    },
+    "permissions": {
+      "description": "Origins the theme may reach. They feed the generated CSP.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "connect": { "$ref": "#/$defs/origins" },
+        "img": { "$ref": "#/$defs/origins" },
+        "frame": { "$ref": "#/$defs/origins" }
+      }
+    },
+    "integrations": {
+      "description": "Integrations the theme supports. Their origins join the CSP only when the site enables them.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "fonts": {
+      "description": "Font files the theme ships under assets/fonts (#62). They are served from the site's own origin, only for subsets the site's language needs.",
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["family", "files", "fallback"],
+        "properties": {
+          "family": { "type": "string", "pattern": "^[A-Za-z0-9 -]{1,64}$" },
+          "weight": { "type": ["integer", "string"], "pattern": "^[0-9]{3}( [0-9]{3})?$", "minimum": 100, "maximum": 900 },
+          "style": { "enum": ["normal", "italic"] },
+          "preload": { "type": "boolean", "description": "Preload the latin file; at most one font may set this." },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["src", "subset", "unicodeRange"],
+              "properties": {
+                "src": { "type": "string", "pattern": "^assets/fonts/[a-z0-9-]+\\.woff2$" },
+                "subset": { "enum": ["latin", "latin-ext", "cyrillic", "cyrillic-ext", "greek", "vietnamese"] },
+                "unicodeRange": { "type": "string", "pattern": "^U\\+[0-9A-Fa-f?-]+(,\\s*U\\+[0-9A-Fa-f?-]+)*$" }
+              }
+            }
+          },
+          "fallback": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["local"],
+            "description": "A metric-matched local fallback, so swapping in the web font does not shift layout.",
+            "properties": {
+              "local": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[A-Za-z0-9 -]{1,64}$" } },
+              "sizeAdjust": { "$ref": "#/$defs/percent" },
+              "ascentOverride": { "$ref": "#/$defs/percent" },
+              "descentOverride": { "$ref": "#/$defs/percent" },
+              "lineGapOverride": { "$ref": "#/$defs/percent" }
+            }
+          }
+        }
+      }
+    },
+    "budgets": {
+      "description": "Overrides of the CI performance budgets. They can only be tighter than the defaults.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "htmlKb": { "type": "number", "exclusiveMinimum": 0, "maximum": 14 },
+        "criticalCssKb": { "type": "number", "exclusiveMinimum": 0, "maximum": 10 },
+        "totalCssKb": { "type": "number", "exclusiveMinimum": 0, "maximum": 30 },
+        "jsKb": { "type": "number", "minimum": 0, "maximum": 15 },
+        "fontKb": { "type": "number", "minimum": 0, "maximum": 60 }
+      }
+    }
+  },
+  "$defs": {
+    "percent": { "type": "string", "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3})?%$" },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,39}$"
+    },
+    "origins": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "pattern": "^https://[a-z0-9.-]+(:[0-9]{1,5})?$"
+      }
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 300 },
+        "options": {
+          "description": "Options an author can set in the Doc, for example columns (contained).",
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 30,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "js": {
+          "description": "Present when the block ships blocks/<name>/block.js as an island.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["load"],
+          "properties": {
+            "load": { "enum": ["visible", "idle", "interaction"] }
+          }
+        },
+        "shape": {
+          "description": "Expected table shape in the Doc. The editor warns when a block does not match.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minRows": { "type": "integer", "minimum": 0 },
+            "maxRows": { "type": "integer", "minimum": 1 },
+            "columns": { "type": "integer", "minimum": 1, "maximum": 12 }
+          }
+        }
+      }
+    },
+    "setting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "label"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "type": { "enum": ["text", "boolean", "select", "color", "number"] },
+        "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "default": { "type": ["string", "boolean", "number"] },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        }
+      },
+      "if": { "properties": { "type": { "const": "select" } } },
+      "then": { "required": ["options"] }
+    }
+  }
+}

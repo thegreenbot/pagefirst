@@ -58,6 +58,84 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+/** Lists every page in the live deployment, so a publish can carry them forward (#85 stopgap). */
+export const SITE_MANIFEST_PATH = "/_pagefirst/manifest.json";
+const MAX_CARRIED_PAGES = 500;
+const MAX_PAGE_BYTES = 2 * 1024 * 1024;
+
+type SiteFile = { path: string; bytes: Uint8Array<ArrayBuffer>; type: string };
+
+function projectSubdomain(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const result = (payload as { result?: unknown }).result;
+  if (!result || typeof result !== "object") return null;
+  const subdomain = (result as { subdomain?: unknown }).subdomain;
+  if (typeof subdomain !== "string") return null;
+  return /^[a-z0-9-]+\.pages\.dev$/.test(subdomain) ? subdomain : null;
+}
+
+/**
+ * Reads the live site's page list and each page's bytes. A Pages deployment
+ * replaces every file, so without this one publish removes all other pages.
+ * Throws when a listed page cannot be read, so a publish never silently drops one.
+ */
+export async function livePages(subdomain: string): Promise<SiteFile[]> {
+  const listing = await fetch(`https://${subdomain}${SITE_MANIFEST_PATH}`, { cache: "no-store" });
+  if (listing.status === 404) {
+    await discard(listing);
+    return [];
+  }
+  if (!listing.ok) {
+    await discard(listing);
+    throw new Error(`Could not read the live site (${listing.status})`);
+  }
+  const body = (await readJson(listing)) as { pages?: unknown } | null;
+  const paths = Array.isArray(body?.pages) ? body.pages : [];
+  const files: SiteFile[] = [];
+  for (const path of paths.slice(0, MAX_CARRIED_PAGES)) {
+    if (typeof path !== "string" || !/^\/[A-Za-z0-9._-]+\.html$/.test(path)) continue;
+    const page = await fetch(`https://${subdomain}${path}`, { cache: "no-store" });
+    if (!page.ok) {
+      await discard(page);
+      throw new Error(`Could not read live page ${path} (${page.status})`);
+    }
+    const bytes = new Uint8Array(await page.arrayBuffer());
+    if (bytes.byteLength > MAX_PAGE_BYTES) throw new Error(`Live page ${path} is too large to carry forward`);
+    files.push({ path, bytes, type: "text/html; charset=utf-8" });
+  }
+  return files;
+}
+
+/** Builds the deployment form: carried pages, the new page, and an updated page list. */
+export function deploymentForm(carried: SiteFile[], fileName: string, html: string): FormData {
+  const files = new Map<string, SiteFile>();
+  for (const file of carried) files.set(file.path, file);
+  files.set(`/${fileName}`, { path: `/${fileName}`, bytes: new TextEncoder().encode(html), type: "text/html; charset=utf-8" });
+  const pages = [...files.keys()].sort();
+  files.set(SITE_MANIFEST_PATH, {
+    path: SITE_MANIFEST_PATH,
+    bytes: new TextEncoder().encode(JSON.stringify({ pages })),
+    type: "application/json",
+  });
+
+  const manifest: Record<string, string> = {};
+  const form = new FormData();
+  const parts: [string, SiteFile][] = [];
+  for (const file of files.values()) {
+    const hash = createHash("sha256").update(file.bytes).digest("hex");
+    manifest[file.path] = hash;
+    parts.push([hash, file]);
+  }
+  form.append("manifest", JSON.stringify(manifest));
+  const sent = new Set<string>();
+  for (const [hash, file] of parts) {
+    if (sent.has(hash)) continue;
+    sent.add(hash);
+    form.append(hash, new Blob([file.bytes], { type: file.type }), file.path.split("/").pop());
+  }
+  return form;
+}
+
 export async function uploadToCloudflare(
   filePath: string,
   html: string,
@@ -74,6 +152,7 @@ export async function uploadToCloudflare(
     headers: { Authorization: authorization },
   });
 
+  let project: unknown = null;
   if (existing.status === 404) {
     await discard(existing);
     const created = await fetch(accountUrl(account, "/pages/projects"), {
@@ -89,32 +168,20 @@ export async function uploadToCloudflare(
       await discard(created);
       throw failed(created.status);
     }
-    const createdBody = await readJson(created);
-    if (
-      createdBody &&
-      typeof createdBody === "object" &&
-      (createdBody as { success?: unknown }).success === false
-    ) {
+    project = await readJson(created);
+    if (project && typeof project === "object" && (project as { success?: unknown }).success === false) {
       throw failed(created.status);
     }
   } else if (!existing.ok) {
     await discard(existing);
     throw failed(existing.status);
   } else {
-    await discard(existing);
+    project = await readJson(existing);
   }
 
-  const fileName = deploymentFileName(filePath);
-  const fileBytes = new TextEncoder().encode(html);
-  const hash = createHash("sha256").update(fileBytes).digest("hex");
-  const manifest = { [`/${fileName}`]: hash };
-  const form = new FormData();
-  form.append("manifest", JSON.stringify(manifest));
-  form.append(
-    hash,
-    new Blob([fileBytes], { type: "text/html; charset=utf-8" }),
-    fileName,
-  );
+  const subdomain = projectSubdomain(project);
+  const carried = subdomain ? await livePages(subdomain) : [];
+  const form = deploymentForm(carried, deploymentFileName(filePath), html);
 
   const deployed = await fetch(`${projectUrl}/deployments`, {
     method: "POST",

@@ -1,46 +1,64 @@
 import { NextResponse } from "next/server";
-import { isSafeId, type CommitResult, type Op } from "@/lib/page/types";
+import { readTextCapped } from "@/lib/http/body";
+import { callerKey, checkRateLimit, requireGoogleWriter, tooManyRequests, withRateLimit } from "@/lib/guard";
+import { isSafeId, type CommitResult } from "@/lib/page/types";
+import { LIMITS, validateCommitRequest } from "@/lib/page/validate";
 import { commitPage } from "@/lib/store";
+import { auditRequest } from "@/lib/audit-request";
 
 export const dynamic = "force-dynamic";
+
+/** Commits per caller per minute: generous for an author typing then committing. */
+const COMMIT_LIMIT = 30;
 
 export async function POST(
   request: Request,
   context: { params: Promise<{ fileId: string }> },
-): Promise<NextResponse<CommitResult | { error: string }>> {
+): Promise<NextResponse<CommitResult | { error: string; path?: string }>> {
   const { fileId } = await context.params;
   if (!isSafeId(fileId)) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
+  // Middleware has already refused cross-site and non-JSON requests.
+  const writer = await requireGoogleWriter();
+  if (!writer.ok) {
+    return NextResponse.json({ error: writer.error }, { status: 401 });
+  }
+  const limit = await checkRateLimit("commit", callerKey(writer.token, request, writer.sub), COMMIT_LIMIT);
+  if (!limit.ok) {
+    await auditRequest(request, { event: "request.denied", outcome: "denied", fileId, status: 429, errorCode: "rate_limited:commit" });
+    return tooManyRequests("Too many saves. Wait a moment and try again.", limit);
+  }
+
+  const read = await readTextCapped(request, LIMITS.maxBodyBytes);
+  if (!read.ok) {
+    return NextResponse.json({ error: "Request is too large" }, { status: 413 });
+  }
+
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(read.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json(
-      { error: "Expected baseRevisionId and ops" },
-      { status: 400 },
-    );
+  const parsed = validateCommitRequest(body);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: `${parsed.path}: ${parsed.error}`, path: parsed.path }, { status: 400 });
   }
+  const { baseRevisionId, ops } = parsed.value;
 
-  const { baseRevisionId, ops } = body as {
-    baseRevisionId?: unknown;
-    ops?: unknown;
-  };
-  if (!Array.isArray(ops)) {
-    return NextResponse.json({ error: "ops must be an array" }, { status: 400 });
-  }
-  if (typeof baseRevisionId !== "string") {
-    return NextResponse.json(
-      { error: "baseRevisionId must be a string" },
-      { status: 400 },
-    );
-  }
-
-  const result = await commitPage(fileId, baseRevisionId, ops as Op[]);
-  return NextResponse.json(result, { status: result.ok ? 200 : result.status });
+  const result = await commitPage(fileId, baseRevisionId, ops);
+  await auditRequest(request, {
+    event: "page.commit",
+    outcome: result.ok ? "ok" : result.status === 409 ? "denied" : "error",
+    fileId,
+    baseRevisionId,
+    resultRevisionId: result.ok ? result.page.revisionId : null,
+    ops,
+    status: result.ok ? 200 : result.status,
+    errorCode: result.ok ? null : result.error,
+  });
+  return withRateLimit(NextResponse.json(result, { status: result.ok ? 200 : result.status }), limit);
 }

@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
-import { callerKey, requireGoogleWriter, sameOrigin, withinRateLimit } from "@/lib/guard";
+import { callerKey, checkRateLimit, requireGoogleWriter, sameOrigin, tooManyRequests, withRateLimit } from "@/lib/guard";
 import { googleConfigured } from "@/lib/google/config";
+import { fetchGoogleIdentity } from "@/lib/google/userinfo";
+import { mayPublishPublicly } from "@/lib/publish/allowlist";
 import { isSafeId, type PublishResult } from "@/lib/page/types";
-import { renderPublishHtml } from "@/lib/page/render";
+import { renderPageHtml } from "@/lib/page/render";
 import { uploadToCloudflare } from "@/lib/publish/cloudflare";
-import { savePreview } from "@/lib/publish/preview";
+import { encodeMissing, planImages, recordSiteRenditions, siteHasRenditions } from "@/lib/publish/images";
+import { readPreviewAsset, savePreview, savePreviewAssets } from "@/lib/publish/preview";
 import { getPage } from "@/lib/store";
+import { renderContextFor, siteForOwner } from "@/lib/site/theme-config";
+import { auditRequest } from "@/lib/audit-request";
+import { publishToOwnSite, sitePublishingEnabled } from "@/lib/publish/sites";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +33,10 @@ export async function POST(
   if (!googleConfigured() && !sameOrigin(request)) {
     return NextResponse.json({ error: "Sign in with Google to publish." }, { status: 401 });
   }
-  if (!withinRateLimit(`publish:${callerKey(writer.token, request)}`, 6)) {
-    return NextResponse.json({ error: "Too many publish requests. Wait a minute." }, { status: 429 });
+  const limit = await checkRateLimit("publish", callerKey(writer.token, request, writer.sub), 6);
+  if (!limit.ok) {
+    await auditRequest(request, { event: "request.denied", outcome: "denied", fileId, status: 429, errorCode: "rate_limited:publish" });
+    return tooManyRequests("Too many publish requests. Wait a minute.", limit);
   }
 
   let wantsPublic = false;
@@ -47,8 +55,15 @@ export async function POST(
     return NextResponse.json({ error: "Page not found" }, { status: 404 });
   }
 
-  const html = await renderPublishHtml(payload.page);
-  savePreview(fileId, html);
+  // Sample pages have no site; signed-in pages render with their site's stored theme (#56).
+  const renderContext = await renderContextFor(payload.sample ? null : writer.sub, fileId);
+  // Image renditions (#61): planned once, encoded only for destinations that lack them.
+  const imagePlan = await planImages(payload.page);
+  const { html, csp, assets, preloads } = renderPageHtml(payload.page, "publish", renderContext, imagePlan.images);
+  const previewImages = await encodeMissing(imagePlan.planned, (image) => image.paths.every((path) => readPreviewAsset(path) !== null));
+  // Preview assets stay in this instance's memory; public publishing uploads them with the page.
+  savePreviewAssets([...assets, ...previewImages.assets]);
+  await savePreview(fileId, html, csp, payload.page.revisionId);
 
   const body: PublishResponse = {
     ok: true,
@@ -56,11 +71,57 @@ export async function POST(
     previewPath: `/published/${fileId}`,
   };
 
-  if (!wantsPublic) return NextResponse.json(body);
+  const audit = (outcome: "ok" | "denied" | "error", errorCode: string | null, siteId: string | null = null) =>
+    auditRequest(request, {
+      event: "page.publish",
+      outcome,
+      fileId,
+      resultRevisionId: payload.page.revisionId,
+      status: 200,
+      errorCode,
+      siteId,
+      pagePath: wantsPublic ? payload.page.path : null,
+    });
+
+  if (!wantsPublic) {
+    await audit("ok", "preview");
+    return withRateLimit(NextResponse.json(body), limit);
+  }
 
   if (!writer.token) {
     body.warning = "Sign in with Google before publishing a public copy.";
-    return NextResponse.json(body);
+    await audit("denied", "public:signed_out");
+    return withRateLimit(NextResponse.json(body), limit);
+  }
+
+  if (sitePublishingEnabled()) {
+    // Each account publishes to its own site (#94), so no allow-list is needed.
+    if (!writer.sub || payload.sample) {
+      body.warning = "Sign in with Google before publishing a public copy.";
+      await audit("denied", "public:no_account");
+      return withRateLimit(NextResponse.json(body), limit);
+    }
+    try {
+      const siteId = await siteForOwner(writer.sub);
+      const uploaded = await siteHasRenditions(siteId, imagePlan.planned.map((image) => image.hash));
+      const siteImages = await encodeMissing(imagePlan.planned, (image) => uploaded.has(image.hash));
+      const published = await publishToOwnSite(writer.sub, payload.page.path, { html, csp, preloads, assets: [...assets, ...siteImages.assets] });
+      await recordSiteRenditions(published.siteId, siteImages.encoded);
+      body.url = published.url;
+      await audit("ok", "public", published.siteId);
+    } catch (error) {
+      body.warning = error instanceof Error ? error.message : "Publishing failed";
+      await audit("error", "public:upload_failed");
+    }
+    return withRateLimit(NextResponse.json(body), limit);
+  }
+
+  // Stopgap until R2 is configured: one shared Pages project, allow-listed accounts only (#85).
+  const identity = await fetchGoogleIdentity(writer.token);
+  if (!mayPublishPublicly(identity?.email ?? null)) {
+    body.warning = "Public publishing is limited to approved accounts for now. Your preview is ready.";
+    await audit("denied", "public:not_allowed");
+    return withRateLimit(NextResponse.json(body), limit);
   }
 
   try {
@@ -70,6 +131,7 @@ export async function POST(
   } catch (error) {
     body.warning = error instanceof Error ? error.message : "Cloudflare upload failed";
   }
+  await audit(body.url ? "ok" : "error", body.url ? "public" : "public:upload_failed");
 
-  return NextResponse.json(body);
+  return withRateLimit(NextResponse.json(body), limit);
 }

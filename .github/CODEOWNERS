@@ -1,0 +1,31 @@
+# Code owners for Pagefirst. A ruleset on main and develop can require a
+# code-owner review for these paths. Later rules win, so the default comes first.
+
+*                       @thegreenbot
+
+# Auth, sessions, guards and Google access (OAuth grant can edit users' Docs)
+/lib/session.ts         @thegreenbot
+/lib/guard.ts           @thegreenbot
+/lib/google/            @thegreenbot
+/app/api/auth/          @thegreenbot
+
+# API surface and storage, plus the future service layer, API and MCP packages
+/app/api/               @thegreenbot
+/lib/store.ts           @thegreenbot
+/lib/service/           @thegreenbot
+
+# Publishing
+/lib/publish/           @thegreenbot
+
+# CI, hooks, infrastructure and scripts
+/.github/               @thegreenbot
+/.githooks/             @thegreenbot
+/infra/                 @thegreenbot
+/scripts/               @thegreenbot
+
+# Dependencies
+/package.json           @thegreenbot
+/package-lock.json      @thegreenbot
+
+# Security policy
+/SECURITY.md            @thegreenbot

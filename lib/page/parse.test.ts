@@ -52,6 +52,8 @@ function studioDoc(): DocsDocument {
             rows: [
               { tableCells: [cell("metadata\n")] },
               { tableCells: [cell("title\n"), cell("About\n")] },
+              { tableCells: [cell("template\n"), cell("landing\n")] },
+              { tableCells: [cell("Theme\n"), cell("@x/y\n")] },
             ],
           },
         },
@@ -414,7 +416,6 @@ test("aboutFixture and blankPage build the page model", () => {
   assert.deepEqual(about.metadata, {
     title: "About",
     description: "What the studio ships.",
-    template: "page",
   });
   assert.equal(about.sections.length, 3);
   assert.equal(asProse(about.sections[0].children[0]).text, "About the studio");
@@ -506,4 +507,11 @@ test("aboutFixture and blankPage build the page model", () => {
   });
   assert.match(fromHeading, /<title>From the heading<\/title>/);
   assert.equal(fromHeading.includes('name="description"'), false);
+});
+
+test("presentation rows in the Doc metadata table are ignored (#56)", () => {
+  const page = parseDocument(studioDoc());
+  assert.equal(page.metadata.title, "About");
+  assert.equal("template" in page.metadata, false);
+  assert.equal("Theme" in page.metadata, false);
 });

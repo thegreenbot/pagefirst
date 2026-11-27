@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="{{ site.lang }}">
+<head>
+{% pf_head %}
+</head>
+<body>
+<main>
+{% for section in page.sections -%}
+<div class="{{ section.style | classes: 'section' }}"{% pf_id section %}>{% for node in section.children %}{% pf_node node %}{% endfor %}</div>
+{% endfor -%}
+</main>
+{% pf_foot %}
+</body>
+</html>

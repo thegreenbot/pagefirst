@@ -41,6 +41,26 @@ test("replaceText deletes through the character before the newline and inserts a
         location: { index: 1 },
       },
     },
+    { deleteNamedRange: { name: "pg/node/abc" } },
+    {
+      createNamedRange: {
+        name: "pg/node/abc",
+        range: { startIndex: 1, endIndex: 4 },
+      },
+    },
+  ]);
+});
+
+test("replaceText re-creates the node's named range over the new text", () => {
+  const ops: Op[] = [{ op: "replaceText", nodeId: "abc", text: "Hello there" }];
+  const { requests } = buildCommitRequests(helloDoc(), ops);
+  assert.deepEqual(requests.slice(-1), [
+    {
+      createNamedRange: {
+        name: "pg/node/abc",
+        range: { startIndex: 1, endIndex: 13 },
+      },
+    },
   ]);
 });
 
@@ -84,7 +104,7 @@ test("writes the higher index first so earlier ranges stay valid", () => {
     20,
   );
   assert.equal(
-    (requests[2] as { deleteContentRange: { range: { startIndex: number } } }).deleteContentRange.range
+    (requests[4] as { deleteContentRange: { range: { startIndex: number } } }).deleteContentRange.range
       .startIndex,
     1,
   );

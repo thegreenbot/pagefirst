@@ -102,9 +102,23 @@ export function buildCommitRequests(doc: DocsDocument, ops: Op[]): { requests: o
   for (const op of ops) {
     if (op.op === "replaceText") {
       const span = findNodeSpan(doc, op.nodeId);
+      const name = `pg/node/${op.nodeId}`;
       groups.push({
         index: span.startIndex,
-        requests: replaceSpan(span.startIndex, span.endIndex, op.text),
+        requests: [
+          ...replaceSpan(span.startIndex, span.endIndex, op.text),
+          // Text inserted at a named range's start falls outside it, and the
+          // old content is gone, so Google drops or collapses the range. Put it
+          // back over the new text plus the character we kept, or the next
+          // commit cannot find this node.
+          { deleteNamedRange: { name } },
+          {
+            createNamedRange: {
+              name,
+              range: { startIndex: span.startIndex, endIndex: span.startIndex + op.text.length + 1 },
+            },
+          },
+        ],
       });
       continue;
     }

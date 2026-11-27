@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FocusEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { PreviewFrame } from "@/components/editor/preview-frame";
 import { applyOps } from "@/lib/page/ops";
 import {
   createId,
@@ -13,17 +14,14 @@ import {
   type ProseTag,
   type Section,
 } from "@/lib/page/types";
+import { renderPage } from "@/lib/theme/engine";
+import { withPresentation } from "@/lib/theme/presentation";
+import { resolveTokens, tokenDefs, tokensCss as compileTokens, type TokenValues } from "@/lib/theme/tokens";
+import type { PagePresentation, SiteThemeConfig } from "@/lib/site/theme-config";
+import type { ThemePackage } from "@/lib/theme/package";
 
 const buttonClass =
   "border border-rule bg-paper px-3 py-1.5 text-sm text-ink disabled:opacity-50";
-
-const textClass: Record<"h1" | "h2" | "h3" | "h4" | "p", string> = {
-  h1: "font-serif text-4xl leading-tight tracking-tight",
-  h2: "font-serif text-2xl leading-snug tracking-tight",
-  h3: "font-serif text-xl leading-snug",
-  h4: "font-serif text-lg leading-snug",
-  p: "text-base leading-relaxed",
-};
 
 const styleTags: ProseTag[] = ["p", "h1", "h2", "h3", "h4"];
 
@@ -155,7 +153,43 @@ function findSection(page: Page, sectionId: string): Section | undefined {
   return page.sections.find((section) => section.id === sectionId);
 }
 
-export function PageEditor({ initial, sample }: { initial: Page; sample: boolean }) {
+/** Where a data-pf-id from the preview sits in the draft. */
+type Located = { section: Section; block?: Block; prose?: Prose };
+
+function locate(page: Page, id: string | null): Located | null {
+  if (!id) return null;
+  for (const section of page.sections) {
+    if (section.id === id) return { section };
+    for (const child of section.children) {
+      if (child.id === id) return child.kind === "block" ? { section, block: child } : { section, prose: child };
+      if (child.kind !== "block") continue;
+      for (const row of child.rows) {
+        for (const cell of row) {
+          const prose = cell.children.find((node) => node.id === id);
+          if (prose) return { section, block: child, prose };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export function PageEditor({
+  initial,
+  sample,
+  theme,
+  nonce,
+  siteConfig,
+  presentation: initialPresentation,
+}: {
+  initial: Page;
+  sample: boolean;
+  theme: ThemePackage;
+  nonce: string;
+  /** Null when there is no stored site (sample mode or no database). */
+  siteConfig: Pick<SiteThemeConfig, "settings" | "tokens"> | null;
+  presentation: PagePresentation | null;
+}) {
   const [model, setModel] = useState(() => createModel(initial));
   const modelRef = useRef(model);
   const [status, setStatus] = useState("");
@@ -166,10 +200,37 @@ export function PageEditor({ initial, sample }: { initial: Page; sample: boolean
   const publishingRef = useRef(false);
   const [published, setPublished] = useState<Published | null>(null);
   const [publicCopy, setPublicCopy] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focusToken, setFocusToken] = useState(0);
+  const [presentation, setPresentation] = useState<PagePresentation>(
+    () => initialPresentation ?? { template: "page", sectionStyles: {} },
+  );
+
+  const [brand, setBrand] = useState(() => ({
+    tokens: { ...(siteConfig?.tokens ?? {}) } as TokenValues,
+    settings: { ...(siteConfig?.settings ?? {}) },
+  }));
+  // Token changes swap CSS in the preview and never re-render templates (#57);
+  // a render for another reason picks up the latest values from here.
+  const tokensRef = useRef(brand.tokens);
+  tokensRef.current = brand.tokens;
+  const brandSave = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasSite = siteConfig !== null;
 
   modelRef.current = model;
   const dirty = model.pending.length > 0;
   const { draft } = model;
+  const rendered = useMemo(() => {
+    try {
+      const site = hasSite ? { settings: brand.settings, tokens: tokensRef.current } : null;
+      const applied = withPresentation(draft, site, site ? presentation : null);
+      return { ...renderPage(applied.page, theme, { ...applied.options, mode: "edit" }), error: "" };
+    } catch (error) {
+      return { html: "", csp: "", warnings: [], error: messageOf(error) };
+    }
+  }, [draft, theme, hasSite, presentation, brand.settings]);
+  const tokenStyle = useMemo(() => compileTokens(resolveTokens(theme, brand.tokens)), [theme, brand.tokens]);
+  const located = locate(draft, selectedId);
 
   function edit(op: Op): boolean {
     const current = modelRef.current;
@@ -188,23 +249,19 @@ export function PageEditor({ initial, sample }: { initial: Page; sample: boolean
   function insertParagraph(sectionId: string) {
     const section = findSection(modelRef.current.draft, sectionId);
     if (!section) return;
-    edit({
-      op: "insertProse",
-      sectionId,
-      index: section.children.length,
-      node: paragraphNode(),
-    });
+    const node = paragraphNode();
+    if (edit({ op: "insertProse", sectionId, index: section.children.length, node })) {
+      setSelectedId(node.id);
+      setFocusToken((token) => token + 1);
+    }
   }
 
   function insertNamedBlock(sectionId: string, block: Block) {
     const section = findSection(modelRef.current.draft, sectionId);
     if (!section) return;
-    edit({
-      op: "insertBlock",
-      sectionId,
-      index: section.children.length,
-      block,
-    });
+    if (edit({ op: "insertBlock", sectionId, index: section.children.length, block })) {
+      setSelectedId(block.id);
+    }
   }
 
   function moveBlock(sectionId: string, nodeId: string, direction: -1 | 1) {
@@ -214,6 +271,55 @@ export function PageEditor({ initial, sample }: { initial: Page; sample: boolean
     const index = from + direction;
     if (from < 0 || index < 0 || index >= section.children.length) return;
     edit({ op: "moveNode", nodeId, toSectionId: sectionId, index });
+  }
+
+  function onPreviewText(id: string, text: string) {
+    const node = locate(modelRef.current.draft, id)?.prose;
+    if (!node || node.tag === "img" || node.tag === "ul" || node.tag === "ol") return;
+    if ((node.text ?? "") === text) return;
+    edit({ op: "replaceText", nodeId: id, text });
+  }
+
+  function changeBrand(next: { tokens: TokenValues; settings: Record<string, string | number | boolean> }) {
+    setBrand(next);
+    if (brandSave.current) clearTimeout(brandSave.current);
+    brandSave.current = setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch("/api/site/theme", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(next),
+          });
+          const data = await readJson(response);
+          setStatus(response.ok ? "Brand saved." : errorText(data, response));
+        } catch (error) {
+          setStatus(messageOf(error));
+        }
+      })();
+    }, 600);
+  }
+
+  async function savePresentation(next: PagePresentation) {
+    const previous = presentation;
+    setPresentation(next);
+    try {
+      const response = await fetch(`/api/pages/${modelRef.current.draft.fileId}/presentation`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      const data = await readJson(response);
+      if (!response.ok) {
+        setPresentation(previous);
+        setStatus(errorText(data, response));
+        return;
+      }
+      setStatus("Saved.");
+    } catch (error) {
+      setPresentation(previous);
+      setStatus(messageOf(error));
+    }
   }
 
   async function onCommit() {
@@ -315,7 +421,7 @@ export function PageEditor({ initial, sample }: { initial: Page; sample: boolean
   return (
     <div className="min-h-screen bg-paper text-ink">
       <header className="sticky top-0 z-10 border-b border-rule bg-paper">
-        <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <Link href="/" className="font-serif text-lg tracking-tight text-ink">
             Page-first
           </Link>
@@ -376,7 +482,7 @@ export function PageEditor({ initial, sample }: { initial: Page; sample: boolean
           </div>
         </div>
         <div
-          className={`mx-auto flex max-w-3xl flex-wrap items-center gap-3 px-4 ${status || conflict ? "pb-3" : ""}`}
+          className={`mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 ${status || conflict ? "pb-3" : ""}`}
         >
           <p role="status" aria-live="polite" className="text-sm text-ink">
             {status}
@@ -395,138 +501,53 @@ export function PageEditor({ initial, sample }: { initial: Page; sample: boolean
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl bg-paper px-4 pb-24 pt-4">
-        {draft.sections.map((section) => (
-          <section key={section.id} className="border-b border-rule py-6">
-            {section.children.map((node, index) =>
-              node.kind === "prose" ? (
-                <ProseEditor key={node.id} node={node} onEdit={edit} onReport={setStatus} />
-              ) : (
-                <BlockView
-                  key={node.id}
-                  block={node}
-                  index={index}
-                  count={section.children.length}
-                  onMove={(direction) => moveBlock(section.id, node.id, direction)}
-                  onRemove={() => edit({ op: "removeNode", nodeId: node.id })}
-                  onEdit={edit}
-                  onReport={setStatus}
-                />
-              ),
-            )}
-            <div className="mt-6 flex flex-wrap gap-2">
-              <button type="button" className={buttonClass} onClick={() => insertParagraph(section.id)}>
-                Paragraph
-              </button>
-              <button
-                type="button"
-                className={buttonClass}
-                onClick={() => insertNamedBlock(section.id, heroBlock())}
-              >
-                Hero
-              </button>
-              <button
-                type="button"
-                className={buttonClass}
-                onClick={() => insertNamedBlock(section.id, columnsBlock())}
-              >
-                Columns
-              </button>
-              <button
-                type="button"
-                className={buttonClass}
-                onClick={() => insertNamedBlock(section.id, cardsBlock())}
-              >
-                Cards
-              </button>
-            </div>
-          </section>
-        ))}
-        <MetadataEditor metadata={draft.metadata} onEdit={edit} />
-      </main>
-    </div>
-  );
-}
-
-function BlockView({
-  block,
-  index,
-  count,
-  onMove,
-  onRemove,
-  onEdit,
-  onReport,
-}: {
-  block: Block;
-  index: number;
-  count: number;
-  onMove: (direction: -1 | 1) => void;
-  onRemove: () => void;
-  onEdit: (op: Op) => boolean;
-  onReport: (message: string) => void;
-}) {
-  const label =
-    block.options.length > 0 ? `${block.name} (${block.options.join(", ")})` : block.name;
-  return (
-    <div className="mt-6 border-t border-rule pt-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-green">{label}</p>
-        <button type="button" className={buttonClass} onClick={() => onMove(-1)} disabled={index === 0}>
-          Move up
-        </button>
-        <button
-          type="button"
-          className={buttonClass}
-          onClick={() => onMove(1)}
-          disabled={index >= count - 1}
-        >
-          Move down
-        </button>
-        <button type="button" className={buttonClass} onClick={onRemove}>
-          Remove
-        </button>
-      </div>
-      {block.rows.map((row, rowIndex) => (
-        <div
-          key={row.map((cell) => cell.id).join(":") || `row-${rowIndex}`}
-          className={row.length > 1 ? "mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2" : "mt-4"}
-        >
-          {row.map((cell) => (
-            <div key={cell.id} className="min-w-0">
-              {cell.children.map((child) => (
-                <ProseEditor key={child.id} node={child} onEdit={onEdit} onReport={onReport} />
-              ))}
-            </div>
-          ))}
+      <main className="mx-auto grid max-w-6xl gap-6 bg-paper px-4 pb-24 pt-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="min-w-0">
+          {rendered.error ? (
+            <p role="alert" className="border border-rule px-4 py-3 text-sm text-ink">
+              The theme could not render this page: {rendered.error}
+            </p>
+          ) : (
+            <PreviewFrame
+              html={rendered.html}
+              tokensCss={tokenStyle}
+              nonce={nonce}
+              selectedId={selectedId}
+              focusToken={focusToken}
+              onSelect={setSelectedId}
+              onText={onPreviewText}
+            />
+          )}
         </div>
-      ))}
-    </div>
-  );
-}
-
-function ProseEditor({
-  node,
-  onEdit,
-  onReport,
-}: {
-  node: Prose;
-  onEdit: (op: Op) => boolean;
-  onReport: (message: string) => void;
-}) {
-  return (
-    <div className="mt-4">
-      {node.tag === "img" ? null : <StyleSelect node={node} onEdit={onEdit} />}
-      {node.tag === "img" ? (
-        <ImageEditor node={node} onEdit={onEdit} onReport={onReport} />
-      ) : node.tag === "ul" || node.tag === "ol" ? (
-        <ListEditor node={node} onEdit={onEdit} />
-      ) : (
-        <TextEditor
-          tag={node.tag}
-          text={node.text ?? ""}
-          onCommit={(text) => onEdit({ op: "replaceText", nodeId: node.id, text })}
-        />
-      )}
+        <aside aria-label="Inspector" className="min-w-0 lg:sticky lg:top-24 lg:self-start">
+          <Inspector
+            located={located}
+            sections={draft.sections}
+            theme={theme}
+            onEdit={edit}
+            onReport={setStatus}
+            onMove={(sectionId, nodeId, direction) => moveBlock(sectionId, nodeId, direction)}
+            onRemove={(nodeId) => {
+              if (edit({ op: "removeNode", nodeId })) setSelectedId(null);
+            }}
+            onInsertParagraph={insertParagraph}
+            onInsertBlock={insertNamedBlock}
+            presentation={siteConfig ? presentation : null}
+            onPresentation={(next) => {
+              void savePresentation(next);
+            }}
+          />
+          {rendered.warnings.length > 0 ? (
+            <ul className="mt-4 grid gap-1 text-xs text-ink-soft">
+              {rendered.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          ) : null}
+          {hasSite ? <BrandPanel theme={theme} brand={brand} onChange={changeBrand} /> : null}
+          <MetadataEditor metadata={draft.metadata} onEdit={edit} />
+        </aside>
+      </main>
     </div>
   );
 }
@@ -552,45 +573,6 @@ function StyleSelect({ node, onEdit }: { node: Prose; onEdit: (op: Op) => boolea
       </select>
     </label>
   );
-}
-
-function TextEditor({
-  tag,
-  text,
-  onCommit,
-}: {
-  tag: "h1" | "h2" | "h3" | "h4" | "p";
-  text: string;
-  onCommit: (value: string) => boolean;
-}) {
-  const onBlur = (event: FocusEvent<HTMLElement>) => {
-    const next = event.currentTarget.textContent ?? "";
-    if (next === text) return;
-    const ok = onCommit(next);
-    if (!ok) event.currentTarget.textContent = text;
-  };
-  const className = [
-    "mt-2 block min-h-[1.25em] w-full whitespace-pre-wrap break-words outline-none focus:bg-paper-2",
-    textClass[tag],
-    text === "" ? "border border-dashed border-rule px-2 py-1" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const shared = {
-    contentEditable: true as const,
-    suppressContentEditableWarning: true,
-    role: "textbox" as const,
-    "aria-label": `${tag} text`,
-    "aria-multiline": true as const,
-    className,
-    onBlur,
-    children: text,
-  };
-  if (tag === "h1") return <h1 {...shared} />;
-  if (tag === "h2") return <h2 {...shared} />;
-  if (tag === "h3") return <h3 {...shared} />;
-  if (tag === "h4") return <h4 {...shared} />;
-  return <p {...shared} />;
 }
 
 function ListEditor({ node, onEdit }: { node: Prose; onEdit: (op: Op) => boolean }) {
@@ -729,7 +711,7 @@ function MetadataEditor({
         Page metadata
       </summary>
       <div className="grid gap-4 border-t border-rule px-4 py-4">
-        {(["title", "description", "template"] as const).map((key) => (
+        {(["title", "description"] as const).map((key) => (
           <MetaField key={key} name={key} value={metadata[key] ?? ""} onEdit={onEdit} />
         ))}
       </div>
@@ -742,7 +724,7 @@ function MetaField({
   value,
   onEdit,
 }: {
-  name: "title" | "description" | "template";
+  name: "title" | "description";
   value: string;
   onEdit: (op: Op) => boolean;
 }) {
@@ -770,5 +752,254 @@ function MetaField({
         className="mt-2 w-full border border-rule bg-paper px-3 py-2 text-ink focus:border-ink focus:outline-none"
       />
     </label>
+  );
+}
+
+function Inspector({
+  located,
+  sections,
+  theme,
+  onEdit,
+  onReport,
+  onMove,
+  onRemove,
+  onInsertParagraph,
+  onInsertBlock,
+  presentation,
+  onPresentation,
+}: {
+  located: Located | null;
+  sections: Section[];
+  theme: ThemePackage;
+  onEdit: (op: Op) => boolean;
+  onReport: (message: string) => void;
+  onMove: (sectionId: string, nodeId: string, direction: -1 | 1) => void;
+  onRemove: (nodeId: string) => void;
+  onInsertParagraph: (sectionId: string) => void;
+  onInsertBlock: (sectionId: string, block: Block) => void;
+  /** Null when presentation cannot be stored (sample mode). */
+  presentation: PagePresentation | null;
+  onPresentation: (next: PagePresentation) => void;
+}) {
+  const section = located?.section ?? sections[sections.length - 1];
+  const sectionNumber = section ? sections.indexOf(section) + 1 : 0;
+  const { block, prose } = located ?? {};
+  const blockIndex = block && section ? section.children.indexOf(block) : -1;
+  const declared = block ? Object.hasOwn(theme.manifest.blocks, block.name) : true;
+
+  return (
+    <div className="grid gap-5 border border-rule px-4 py-4">
+      {presentation ? (
+        <label className="grid gap-1 text-sm text-ink">
+          <span className="text-xs font-medium uppercase tracking-[0.14em] text-ink-soft">Page template</span>
+          <select
+            className="border border-rule bg-paper px-2 py-1 text-sm text-ink"
+            value={presentation.template}
+            onChange={(event) => onPresentation({ ...presentation, template: event.target.value })}
+          >
+            {Object.entries(theme.manifest.templates).map(([name, template]) => (
+              <option key={name} value={name}>
+                {template.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      {!located ? (
+        <p className="text-sm text-ink-soft">Select part of the page to edit it. Type in headings and paragraphs directly.</p>
+      ) : null}
+
+      {block && section ? (
+        <div className="grid gap-2">
+          <p className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-green">
+            {block.options.length > 0 ? `${block.name} (${block.options.join(", ")})` : block.name}
+            {!declared ? (
+              <span className="border border-rule px-1.5 py-0.5 normal-case tracking-normal text-ink-soft">
+                Not in this theme
+              </span>
+            ) : null}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={buttonClass}
+              onClick={() => onMove(section.id, block.id, -1)}
+              disabled={blockIndex <= 0}
+            >
+              Move up
+            </button>
+            <button
+              type="button"
+              className={buttonClass}
+              onClick={() => onMove(section.id, block.id, 1)}
+              disabled={blockIndex < 0 || blockIndex >= section.children.length - 1}
+            >
+              Move down
+            </button>
+            <button type="button" className={buttonClass} onClick={() => onRemove(block.id)}>
+              Remove
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {prose ? (
+        <div className="grid gap-2">
+          {prose.tag === "img" ? null : <StyleSelect node={prose} onEdit={onEdit} />}
+          {prose.tag === "img" ? (
+            <ImageEditor key={prose.id} node={prose} onEdit={onEdit} onReport={onReport} />
+          ) : prose.tag === "ul" || prose.tag === "ol" ? (
+            <ListEditor key={prose.id} node={prose} onEdit={onEdit} />
+          ) : (
+            <p className="text-xs text-ink-soft">Edit the text in the page.</p>
+          )}
+          {!block ? (
+            <button type="button" className={`${buttonClass} justify-self-start`} onClick={() => onRemove(prose.id)}>
+              Remove
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {section ? (
+        <div className="grid gap-2">
+          {presentation && located && (theme.manifest.sectionStyles ?? []).length > 0 ? (
+            <fieldset className="grid gap-1">
+              <legend className="text-xs font-medium uppercase tracking-[0.14em] text-ink-soft">
+                Section {sectionNumber} style
+              </legend>
+              {(theme.manifest.sectionStyles ?? []).map((style) => {
+                const current = presentation.sectionStyles[section.id] ?? [];
+                return (
+                  <label key={style} className="flex items-center gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      checked={current.includes(style)}
+                      onChange={(event) => {
+                        const nextStyles = event.target.checked
+                          ? [...current, style]
+                          : current.filter((value) => value !== style);
+                        const sectionStyles = { ...presentation.sectionStyles, [section.id]: nextStyles };
+                        if (nextStyles.length === 0) delete sectionStyles[section.id];
+                        onPresentation({ ...presentation, sectionStyles });
+                      }}
+                    />
+                    {style}
+                  </label>
+                );
+              })}
+            </fieldset>
+          ) : null}
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-ink-soft">
+            Add to section {sectionNumber}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={buttonClass} onClick={() => onInsertParagraph(section.id)}>
+              Paragraph
+            </button>
+            <button type="button" className={buttonClass} onClick={() => onInsertBlock(section.id, heroBlock())}>
+              Hero
+            </button>
+            <button type="button" className={buttonClass} onClick={() => onInsertBlock(section.id, columnsBlock())}>
+              Columns
+            </button>
+            <button type="button" className={buttonClass} onClick={() => onInsertBlock(section.id, cardsBlock())}>
+              Cards
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function BrandPanel({
+  theme,
+  brand,
+  onChange,
+}: {
+  theme: ThemePackage;
+  brand: { tokens: TokenValues; settings: Record<string, string | number | boolean> };
+  onChange: (next: { tokens: TokenValues; settings: Record<string, string | number | boolean> }) => void;
+}) {
+  const defs = tokenDefs(theme);
+  const settings = theme.manifest.settings ?? [];
+  const inputClass = "mt-1 w-full border border-rule bg-paper px-2 py-1 text-sm text-ink";
+  const setToken = (name: string, value: string) => {
+    const tokens = { ...brand.tokens };
+    if (value === "" || value === String(defs[name]?.value)) delete tokens[name];
+    else tokens[name] = value;
+    onChange({ ...brand, tokens });
+  };
+  const setSetting = (id: string, value: string | number | boolean) => onChange({ ...brand, settings: { ...brand.settings, [id]: value } });
+
+  return (
+    <details className="mt-6 border border-rule" open>
+      <summary className="cursor-pointer bg-paper-2 px-4 py-3 text-sm text-ink">Brand</summary>
+      <div className="grid gap-3 border-t border-rule px-4 py-4">
+        {Object.entries(defs).map(([name, def]) => {
+          const value = String(brand.tokens[name] ?? def.value);
+          return (
+            <label key={name} className="block text-sm text-ink">
+              {def.label}
+              {def.type === "color" && /^#[0-9a-fA-F]{6}$/.test(value) ? (
+                <input
+                  type="color"
+                  aria-label={def.label}
+                  value={value}
+                  onChange={(event) => setToken(name, event.target.value)}
+                  className="mt-1 block h-8 w-16 border border-rule bg-paper"
+                />
+              ) : (
+                <input
+                  type="text"
+                  aria-label={def.label}
+                  defaultValue={value}
+                  onBlur={(event) => setToken(name, event.target.value.trim())}
+                  className={inputClass}
+                />
+              )}
+            </label>
+          );
+        })}
+        {settings.map((setting) => {
+          const value = brand.settings[setting.id] ?? setting.default;
+          if (setting.type === "boolean") {
+            return (
+              <label key={setting.id} className="flex items-center gap-2 text-sm text-ink">
+                <input type="checkbox" checked={value === true} onChange={(event) => setSetting(setting.id, event.target.checked)} />
+                {setting.label}
+              </label>
+            );
+          }
+          if (setting.type === "select") {
+            return (
+              <label key={setting.id} className="block text-sm text-ink">
+                {setting.label}
+                <select className={inputClass} value={String(value ?? "")} onChange={(event) => setSetting(setting.id, event.target.value)}>
+                  {(setting.options ?? []).map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          }
+          return (
+            <label key={setting.id} className="block text-sm text-ink">
+              {setting.label}
+              <input
+                type={setting.type === "number" ? "number" : setting.type === "color" ? "color" : "text"}
+                defaultValue={value === undefined ? "" : String(value)}
+                onBlur={(event) => setSetting(setting.id, setting.type === "number" ? Number(event.target.value) : event.target.value)}
+                className={inputClass}
+              />
+            </label>
+          );
+        })}
+      </div>
+    </details>
   );
 }

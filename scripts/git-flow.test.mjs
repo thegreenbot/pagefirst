@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { branchName, checkPushLine, tagName } from "./git-flow.mjs";
+import { branchName, checkPushLine, tagName, checkPullRequestSource } from "./git-flow.mjs";
 
 test("feature, cursor, release, and hotfix names are accepted", () => {
   for (const name of [
@@ -46,4 +46,20 @@ test("other branches and semver tags follow the push rules", () => {
   assert.equal(checkPushLine(`refs/tags/latest ${sha} refs/tags/latest ${zero}`).ok, false);
   assert.equal(checkPushLine(`refs/tags/v1.2.3 ${zero} refs/tags/v1.2.3 ${sha}`).ok, false);
   assert.equal(checkPushLine(`refs/tags/v1.2.3 ${sha} refs/tags/v1.2.3 ${"c".repeat(40)}`).ok, false);
+});
+
+test("only release and hotfix branches may target main", () => {
+  assert.equal(checkPullRequestSource("main", "release/v1.2.3").ok, true);
+  assert.equal(checkPullRequestSource("main", "hotfix/v1.2.4").ok, true);
+  assert.equal(checkPullRequestSource("main", "release/v1.3.0-rc.1").ok, true);
+  assert.equal(checkPullRequestSource("main", "feature/docs").ok, false);
+  assert.equal(checkPullRequestSource("main", "develop").ok, false);
+  assert.equal(checkPullRequestSource("main", "release/1.2.3").ok, false);
+  assert.equal(checkPullRequestSource("main", "dependabot/npm_and_yarn/next-16").ok, false);
+});
+
+test("any branch may target develop", () => {
+  for (const head of ["feature/docs", "cursor/x", "main", "dependabot/npm_and_yarn/next-16"]) {
+    assert.equal(checkPullRequestSource("develop", head).ok, true, head);
+  }
 });

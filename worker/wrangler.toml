@@ -1,0 +1,14 @@
+# The Worker that serves every published site from one R2 bucket (#94).
+# Fill in the bucket name and routes in Cloudflare; no secrets live here.
+name = "pagefirst-sites"
+main = "index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = false
+
+[[r2_buckets]]
+binding = "SITES"
+bucket_name = "pagefirst-sites"
+
+# Every site subdomain of the publish domain. The apex and www stay DNS-only
+# records pointing at Vercel, so the app never passes through this Worker.
+routes = [{ pattern = "*.pagefirst.io/*", zone_name = "pagefirst.io" }]
