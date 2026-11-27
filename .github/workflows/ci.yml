@@ -79,6 +79,8 @@ jobs:
       - run: npm test
       # Unit coverage floor for lib/google and lib/guard (see package.json).
       - run: npm run test:coverage
+      # Byte budgets for every first-party theme and fixture page (#58).
+      - run: npm run budgets
 
   audit:
     runs-on: ubuntu-latest
@@ -147,6 +149,11 @@ jobs:
       - run: npm run test:e2e
         env:
           CI: "true"
+      # Lighthouse budgets for first-party themes (#58): 3 runs per fixture page, median.
+      # Report-only until image renditions (#61) give images their dimensions; the
+      # image fixtures fail CLS without them. #61 removes continue-on-error.
+      - run: npm run budgets:lighthouse
+        continue-on-error: true
       - if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

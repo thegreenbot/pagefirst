@@ -1,1 +1,1 @@
-Fixture pages for this theme live in `lib/page/fixture.ts` for now. #58 adds per-theme fixtures here for the CI budgets.
+Every theme is measured against the same fixture pages, built from its manifest by `lib/theme/fixtures.ts`: the PLAN.md fixture Doc, a long article, a page with every declared block and option, and a large-image worst case. `npm run budgets` checks byte budgets and `npm run budgets:lighthouse` adds Lighthouse (#58). See `lib/theme/budgets.ts` for the limits.
