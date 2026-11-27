@@ -30,6 +30,7 @@ export const API_ERROR_CODES = [
   "payload_too_large",
   "idempotency_mismatch",
   "in_progress",
+  "suggestions_pending",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
@@ -48,6 +49,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   payload_too_large: 413,
   idempotency_mismatch: 422,
   in_progress: 409,
+  suggestions_pending: 409,
 };
 
 const FROM_SERVICE: Record<ServiceErrorCode, ApiErrorCode> = {
@@ -60,6 +62,7 @@ const FROM_SERVICE: Record<ServiceErrorCode, ApiErrorCode> = {
   rate_limited: "rate_limited",
   upstream_quota: "google_quota",
   upstream_error: "upstream_error",
+  suggestions_pending: "suggestions_pending",
 };
 
 export function apiCodeFor(code: ServiceErrorCode): ApiErrorCode {
@@ -82,7 +85,7 @@ export function apiError(
 const IDEMPOTENT_BODY_MAX = 600 * 1024;
 
 /** Fields a handler adds to the audit event the wrapper records for its call. */
-export type AuditNote = Pick<AuditEvent, "fileId" | "baseRevisionId" | "resultRevisionId" | "ops" | "siteId" | "pagePath">;
+export type AuditNote = Pick<AuditEvent, "fileId" | "baseRevisionId" | "resultRevisionId" | "ops" | "siteId" | "pagePath" | "importId" | "docAuthor" | "changeCount">;
 
 export type V1Handler = (ctx: ServiceContext, request: Request, note: AuditNote, credential: Credential) => Promise<NextResponse | Response | object>;
 

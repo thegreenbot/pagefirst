@@ -20,6 +20,10 @@ export type PublishOptions = {
   public?: boolean;
   /** Refuse unless the Doc is still at this revision. */
   revisionId?: string;
+  /** The import this publish follows, recorded on the snapshot and in the audit entry (#34). */
+  importId?: string;
+  /** Publish even though the Doc has pending suggested edits, which the published page will not include. */
+  allowSuggestions?: boolean;
 };
 
 /** What an adapter records in the audit log for this call. */
@@ -29,6 +33,7 @@ export type PublishAudit = {
   siteId: string | null;
   resultRevisionId: string;
   pagePath: string | null;
+  importId?: string | null;
 };
 
 export type PublishOutcome = { response: PublishResponse; audit: PublishAudit };
@@ -47,6 +52,11 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
   if (!payload) throw new ServiceError("not_found", "Page not found");
   if (options.revisionId && payload.page.revisionId !== options.revisionId) {
     throw new ServiceError("conflict", "This doc changed since that revision.", { page: payload.page });
+  }
+
+  // Suggested edits are not content yet; publishing around them silently drops them (ADR 0006).
+  if (wantsPublic && payload.pendingSuggestions && !options.allowSuggestions) {
+    throw new ServiceError("suggestions_pending", `The Doc has ${payload.pendingSuggestions} pending suggested edit${payload.pendingSuggestions === 1 ? "" : "s"}. Accept or reject them in Google Docs, or publish with allowSuggestions.`, { page: payload.page });
   }
 
   // Sample pages have no site; signed-in pages render with their site's stored theme (#56).
@@ -78,6 +88,7 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
       siteId,
       resultRevisionId: payload.page.revisionId,
       pagePath: wantsPublic ? payload.page.path : null,
+      ...(options.importId ? { importId: options.importId } : {}),
     },
   });
 
@@ -103,7 +114,7 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
       // Theme change previews sample these pages, and applying one republishes them (#66).
       await recordSitePage(published.siteId, { fileId, path: payload.page.path, revisionId: payload.page.revisionId });
       await recordRenderKey(published.siteId, fileId, key);
-      await snapshotPage(ctx, googleFor(ctx), payload.page, "publish");
+      await snapshotPage(ctx, googleFor(ctx), payload.page, "publish", { importId: options.importId });
       response.url = published.url;
       return audit("ok", "public", published.siteId);
     } catch (error) {
@@ -123,7 +134,7 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
     const url = await uploadToCloudflare(payload.page.path, html);
     if (url) {
       response.url = url;
-      if (!payload.sample) await snapshotPage(ctx, googleFor(ctx), payload.page, "publish");
+      if (!payload.sample) await snapshotPage(ctx, googleFor(ctx), payload.page, "publish", { importId: options.importId });
     } else response.warning = "Cloudflare did not return a page address.";
   } catch (error) {
     response.warning = error instanceof Error ? error.message : "Cloudflare upload failed";

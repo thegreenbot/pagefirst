@@ -97,8 +97,18 @@ export const openapi = {
         operationId: "publishPage",
         summary: "Publish a pinned revision",
         parameters: [fileId, idempotencyKey],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["revisionId"], properties: { revisionId: { type: "string" }, public: { type: "boolean" } } } } } },
-        responses: { "200": { description: "Published" }, default: error },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["revisionId"], properties: { revisionId: { type: "string" }, public: { type: "boolean" }, importId: { type: "string", description: "An import of this page, to link the publish to it in the audit log." }, allowSuggestions: { type: "boolean", description: "Publish although the Doc has pending suggested edits, which the page will not include." } } } } } },
+        responses: { "200": { description: "Published" }, "409": { description: "revision_conflict if the Doc moved, suggestions_pending if it has unresolved suggestions" }, default: error },
+      },
+    },
+    "/pages/{fileId}/imports": {
+      post: {
+        operationId: "importPage",
+        summary: "Import changes made in the Google Doc",
+        description: "Adopts untracked content (named ranges only), diffs the Doc against the last snapshot Pagefirst took, and returns the change list, conflicts, what adopt did, pending suggestions (reported, not imported) and the Drive author. dryRun defaults to true and writes nothing. With dryRun false the Doc becomes the new base. `publish` imports and then publishes exactly the revision imported, unless a conflict needs a person; the import id links the snapshot, the audit entries and the publish.",
+        parameters: [fileId, idempotencyKey],
+        requestBody: { required: false, content: { "application/json": { schema: { type: "object", properties: { policy: { type: "string", enum: ["manual", "doc-wins", "draft-wins", "fail"], default: "doc-wins" }, dryRun: { type: "boolean", default: true }, publish: { type: "object", properties: { public: { type: "boolean" }, allowSuggestions: { type: "boolean" } } } } } } } },
+        responses: { "200": { description: "The import report" }, "409": { description: "revision_conflict if the Doc moved before publishing, suggestions_pending if the Doc has unresolved suggestions" }, default: error },
       },
     },
     "/jobs": {

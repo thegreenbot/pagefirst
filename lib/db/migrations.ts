@@ -591,4 +591,34 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX page_snapshots_published_idx ON page_snapshots (file_id, id DESC) WHERE source = 'publish';
     `,
   },
+  {
+    id: 25,
+    name: "page imports",
+    sql: `
+      -- One row per import of Doc changes (#34, ADR 0006), dry runs included. The
+      -- import id links the Doc revision, the snapshot, the audit entry and a later publish.
+      CREATE TABLE page_imports (
+        id text PRIMARY KEY,
+        file_id text NOT NULL,
+        actor_sub text,
+        policy text NOT NULL,
+        dry_run boolean NOT NULL,
+        from_revision_id text,
+        to_revision_id text NOT NULL,
+        change_count integer NOT NULL,
+        conflict_count integer NOT NULL,
+        adopted integer NOT NULL DEFAULT 0,
+        suggestions integer NOT NULL DEFAULT 0,
+        doc_author text,
+        doc_modified_time timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX page_imports_file_idx ON page_imports (file_id, created_at DESC);
+      ALTER TABLE page_snapshots ADD COLUMN import_id text;
+      ALTER TABLE audit_events
+        ADD COLUMN import_id text,
+        ADD COLUMN doc_author text,
+        ADD COLUMN change_count integer;
+    `,
+  },
 ];

@@ -7,7 +7,7 @@ import type { GoogleClient, ServiceContext } from "./context";
  * (#29). Best effort: a failure here is logged and never reaches the caller,
  * so a Doc that was written is never reported as failed.
  */
-export async function snapshotPage(ctx: ServiceContext, google: GoogleClient, page: Page, source: SnapshotSource): Promise<void> {
+export async function snapshotPage(ctx: ServiceContext, google: GoogleClient, page: Page, source: SnapshotSource, extra: { importId?: string | null } = {}): Promise<void> {
   try {
     let docModifiedTime: string | null = null;
     let modifiedBy: string | null = null;
@@ -20,7 +20,7 @@ export async function snapshotPage(ctx: ServiceContext, google: GoogleClient, pa
         // The snapshot is still useful without Drive's metadata.
       }
     }
-    await recordSnapshot({ page, source, actorSub: ctx.actor.sub, docModifiedTime, modifiedBy });
+    await recordSnapshot({ page, source, actorSub: ctx.actor.sub, docModifiedTime, modifiedBy, importId: extra.importId ?? null });
   } catch (error) {
     console.error("snapshot failed", ctx.requestId, error instanceof Error ? error.name : "unknown");
   }

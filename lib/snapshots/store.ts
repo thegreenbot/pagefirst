@@ -18,6 +18,8 @@ export type Snapshot = {
   source: SnapshotSource;
   actorSub: string | null;
   contentHash: string;
+  /** The import this snapshot came from or was published from, if any (#34). */
+  importId: string | null;
   /** The Doc's Drive modified time when this was taken, if known. */
   docModifiedTime: string | null;
   modifiedBy: string | null;
@@ -41,13 +43,14 @@ type Row = {
   source: SnapshotSource;
   actor_sub: string | null;
   content_hash: string;
+  import_id: string | null;
   doc_modified_time: Date | null;
   modified_by: string | null;
   created_at: Date;
   page: Page;
 };
 
-const COLUMNS = "id, file_id, revision_id, source, actor_sub, content_hash, doc_modified_time, modified_by, created_at, page";
+const COLUMNS = "id, file_id, revision_id, source, actor_sub, content_hash, import_id, doc_modified_time, modified_by, created_at, page";
 
 function toSnapshot(row: Row): Snapshot {
   return {
@@ -57,6 +60,7 @@ function toSnapshot(row: Row): Snapshot {
     source: row.source,
     actorSub: row.actor_sub,
     contentHash: row.content_hash,
+    importId: row.import_id,
     docModifiedTime: row.doc_modified_time ? row.doc_modified_time.toISOString() : null,
     modifiedBy: row.modified_by,
     createdAt: row.created_at.toISOString(),
@@ -70,6 +74,7 @@ export type NewSnapshot = {
   actorSub: string | null;
   docModifiedTime?: string | null;
   modifiedBy?: string | null;
+  importId?: string | null;
 };
 
 /**
@@ -87,11 +92,11 @@ export async function recordSnapshot(input: NewSnapshot): Promise<boolean> {
   );
   if (latest[0] && latest[0].content_hash === hash && latest[0].revision_id === page.revisionId) return false;
   const inserted = await query<{ id: string }>(
-    `INSERT INTO page_snapshots (file_id, revision_id, source, actor_sub, content_hash, doc_modified_time, modified_by, page)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO page_snapshots (file_id, revision_id, source, actor_sub, content_hash, doc_modified_time, modified_by, page, import_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (file_id, revision_id, source) DO NOTHING
      RETURNING id`,
-    [page.fileId, page.revisionId, input.source, input.actorSub, hash, input.docModifiedTime ?? null, input.modifiedBy ?? null, JSON.stringify(page)],
+    [page.fileId, page.revisionId, input.source, input.actorSub, hash, input.docModifiedTime ?? null, input.modifiedBy ?? null, JSON.stringify(page), input.importId ?? null],
   );
   await pruneSnapshots(page.fileId);
   return inserted.length > 0;
