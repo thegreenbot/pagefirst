@@ -33,10 +33,31 @@ export type RenderOptions = {
    * JavaScript ships.
    */
   optimizer?: { gzipSize: (text: string) => number; hash: (text: string) => string };
+  /**
+   * Published image renditions by Drive file id (#61). When given, a published
+   * image renders as <picture> with AVIF and WebP srcsets and its dimensions,
+   * and an image without a rendition is left out with a warning, so a published
+   * page never points at /api/media. Without it, images use /api/media.
+   */
+  images?: Record<string, ImageRendition>;
 };
+
+/** Renditions of one image, from lib/publish/images.ts. Paths are site-relative, without a leading slash. */
+export type ImageRendition = {
+  width: number;
+  height: number;
+  avif: { path: string; width: number }[];
+  webp: { path: string; width: number }[];
+};
+
+/** Images fill their container's width at most; this keeps phones off the large files. */
+const IMAGE_SIZES = "(min-width: 1440px) 1440px, 100vw";
 
 /** A file the page references, to be served or uploaded next to it. */
 export type RenderAsset = { path: string; contentType: string; body: string };
+
+/** A file published next to a page: text assets from the engine, binary image renditions (#61). */
+export type PublishAsset = { path: string; contentType: string; body: string | Uint8Array };
 
 export type RenderResult = {
   html: string;
@@ -276,13 +297,24 @@ function proseView(node: Prose): ProseView {
 }
 
 /** Built-in prose markup. Images get eager loading only when they are the LCP candidate. */
-function renderProse(node: Prose, mode: RenderMode, lcp: boolean): string {
+function renderProse(node: Prose, mode: RenderMode, lcp: boolean, images: RenderOptions["images"], warnings: string[]): string {
   const id = idAttribute(mode, node.id);
   if (node.tag === "img") {
     const driveFileId = node.image?.driveFileId ?? "";
     if (!driveFileId) return "";
     const alt = escapeHtml(node.image?.alt ?? "");
     const loading = lcp ? ` fetchpriority="high"` : ` loading="lazy" decoding="async"`;
+    if (mode === "publish" && images) {
+      const rendition = Object.hasOwn(images, driveFileId) ? images[driveFileId] : null;
+      if (!rendition || !rendition.webp.length) {
+        warnings.push(`Image "${node.image?.alt || driveFileId}" could not be prepared for publishing and was left out`);
+        return "";
+      }
+      const srcset = (list: ImageRendition["webp"]) => list.map((r) => `/${escapeHtml(r.path)} ${r.width}w`).join(", ");
+      const largest = rendition.webp[rendition.webp.length - 1];
+      const avif = rendition.avif.length ? `<source type="image/avif" srcset="${srcset(rendition.avif)}" sizes="${IMAGE_SIZES}">` : "";
+      return `<picture>${avif}<img src="/${escapeHtml(largest.path)}" srcset="${srcset(rendition.webp)}" sizes="${IMAGE_SIZES}" width="${rendition.width}" height="${rendition.height}" alt="${alt}"${loading}></picture>`;
+    }
     return `<img src="/api/media/${escapeHtml(driveFileId)}" alt="${alt}"${loading}${id}>`;
   }
   if (node.tag === "ul" || node.tag === "ol") {
@@ -370,7 +402,7 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
     const view = proseView(node);
     const lcp = node.tag === "img" && !!node.image?.driveFileId && sectionIndex === 0 && !lcpTaken;
     if (lcp) lcpTaken = true;
-    html.set(view, renderProse(node, mode, lcp));
+    html.set(view, renderProse(node, mode, lcp, options.images, warnings));
     return view;
   };
 

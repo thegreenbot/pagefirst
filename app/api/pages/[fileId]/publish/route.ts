@@ -6,9 +6,10 @@ import { mayPublishPublicly } from "@/lib/publish/allowlist";
 import { isSafeId, type PublishResult } from "@/lib/page/types";
 import { renderPageHtml } from "@/lib/page/render";
 import { uploadToCloudflare } from "@/lib/publish/cloudflare";
-import { savePreview, savePreviewAssets } from "@/lib/publish/preview";
+import { encodeMissing, planImages, recordSiteRenditions, siteHasRenditions } from "@/lib/publish/images";
+import { readPreviewAsset, savePreview, savePreviewAssets } from "@/lib/publish/preview";
 import { getPage } from "@/lib/store";
-import { renderContextFor } from "@/lib/site/theme-config";
+import { renderContextFor, siteForOwner } from "@/lib/site/theme-config";
 import { auditRequest } from "@/lib/audit-request";
 import { publishToOwnSite, sitePublishingEnabled } from "@/lib/publish/sites";
 
@@ -56,9 +57,12 @@ export async function POST(
 
   // Sample pages have no site; signed-in pages render with their site's stored theme (#56).
   const renderContext = await renderContextFor(payload.sample ? null : writer.sub, fileId);
-  const { html, csp, assets } = renderPageHtml(payload.page, "publish", renderContext);
-  // In memory for now; the R2 publish path (#63, #94) uploads these with the page.
-  savePreviewAssets(assets);
+  // Image renditions (#61): planned once, encoded only for destinations that lack them.
+  const imagePlan = await planImages(payload.page);
+  const { html, csp, assets } = renderPageHtml(payload.page, "publish", renderContext, imagePlan.images);
+  const previewImages = await encodeMissing(imagePlan.planned, (image) => image.paths.every((path) => readPreviewAsset(path) !== null));
+  // Preview assets stay in this instance's memory; public publishing uploads them with the page.
+  savePreviewAssets([...assets, ...previewImages.assets]);
   await savePreview(fileId, html, csp, payload.page.revisionId);
 
   const body: PublishResponse = {
@@ -98,7 +102,11 @@ export async function POST(
       return withRateLimit(NextResponse.json(body), limit);
     }
     try {
-      const published = await publishToOwnSite(writer.sub, payload.page.path, { html, csp, assets });
+      const siteId = await siteForOwner(writer.sub);
+      const uploaded = await siteHasRenditions(siteId, imagePlan.planned.map((image) => image.hash));
+      const siteImages = await encodeMissing(imagePlan.planned, (image) => uploaded.has(image.hash));
+      const published = await publishToOwnSite(writer.sub, payload.page.path, { html, csp, assets: [...assets, ...siteImages.assets] });
+      await recordSiteRenditions(published.siteId, siteImages.encoded);
       body.url = published.url;
       await audit("ok", "public", published.siteId);
     } catch (error) {

@@ -44,14 +44,14 @@ function objectUrl(config: R2Config, key: string): string {
     .join("/")}`;
 }
 
-async function send(method: "PUT" | "DELETE", key: string, init: { body?: string; contentType?: string; csp?: string } = {}): Promise<void> {
+async function send(method: "PUT" | "DELETE", key: string, init: { body?: string | Uint8Array; contentType?: string; csp?: string } = {}): Promise<void> {
   const config = r2Config();
   if (!config) throw new Error("Publishing storage is not configured");
   const headers: Record<string, string> = { Authorization: `Bearer ${config.token}` };
   if (init.contentType) headers["Content-Type"] = init.contentType;
   // R2 stores cf-r2-meta-* headers as customMetadata, which the Worker sends as the page's CSP.
   if (init.csp) headers["cf-r2-meta-csp"] = init.csp;
-  const response = await fetch(objectUrl(config, key), { method, headers, body: init.body, signal: AbortSignal.timeout(15_000) });
+  const response = await fetch(objectUrl(config, key), { method, headers, body: typeof init.body === "object" ? Buffer.from(init.body) : init.body, signal: AbortSignal.timeout(15_000) });
   await response.arrayBuffer().catch(() => undefined);
   if (!response.ok && !(method === "DELETE" && response.status === 404)) {
     // The status only: a response body could echo the request.
@@ -66,8 +66,8 @@ export async function putSitePage(siteId: string, pagePath: string, html: string
   return key;
 }
 
-/** Writes a content-addressed asset (e.g. deferred CSS) a page links to. */
-export async function putSiteAsset(siteId: string, assetPath: string, body: string, contentType: string): Promise<string> {
+/** Writes a content-addressed asset (deferred CSS, island module, image rendition) a page links to. */
+export async function putSiteAsset(siteId: string, assetPath: string, body: string | Uint8Array, contentType: string): Promise<string> {
   if (!SITE_ID.test(siteId)) throw new Error("Invalid site id");
   const keys = candidateKeys(`/${assetPath}`);
   if (!keys || keys.length !== 1 || !keys[0]) throw new Error("Invalid asset path");

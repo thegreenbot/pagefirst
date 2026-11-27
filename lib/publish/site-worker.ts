@@ -83,6 +83,16 @@ export function candidateKeys(pathname: string): string[] | null {
   return [`${joined}.html`, `${joined}/index.html`];
 }
 
+/**
+ * Pages change on republish; files under assets/ are content addressed (deferred
+ * CSS, island modules, image renditions), so their bytes never change.
+ */
+export function cacheControl(key: string): string {
+  if (key.endsWith(".html")) return "public, max-age=60";
+  if (key.startsWith("assets/pf/") || key.startsWith("assets/img/")) return "public, max-age=31536000, immutable";
+  return "public, max-age=3600";
+}
+
 export async function siteIdFor(env: SiteWorkerEnv, hostname: string): Promise<string | null> {
   const host = hostname.toLowerCase().replace(/\.$/, "");
   if (!HOSTNAME.test(host)) return null;
@@ -113,7 +123,7 @@ export async function handleSiteRequest(request: Request, env: SiteWorkerEnv): P
       "Content-Type": object.httpMetadata?.contentType || "application/octet-stream",
       "Content-Security-Policy": `${csp}; frame-ancestors 'none'`,
       ETag: object.httpEtag,
-      "Cache-Control": key.endsWith(".html") ? "public, max-age=60" : "public, max-age=3600",
+      "Cache-Control": cacheControl(key),
     });
     if (request.headers.get("if-none-match") === object.httpEtag) return new Response(null, { status: 304, headers });
     return new Response(request.method === "HEAD" ? null : object.body, { headers });
