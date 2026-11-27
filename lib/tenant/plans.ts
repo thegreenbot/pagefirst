@@ -7,14 +7,25 @@
 export const PLANS = ["free", "pro", "team", "enterprise"] as const;
 export type Plan = (typeof PLANS)[number];
 
-export const FEATURES = ["customCss", "templateOverrides"] as const;
+export const FEATURES = ["customCss", "templateOverrides", "scim", "domainLock"] as const;
 export type Feature = (typeof FEATURES)[number];
 
 const PAID: readonly Plan[] = ["pro", "team", "enterprise"];
 
+const ENTERPRISE: readonly Plan[] = ["enterprise"];
+
 const UNLOCKS: Record<Feature, readonly Plan[]> = {
   customCss: PAID,
   templateOverrides: PAID,
+  scim: ENTERPRISE,
+  domainLock: ENTERPRISE,
+};
+
+const FEATURE_NAMES: Record<Feature, string> = {
+  customCss: "Custom CSS",
+  templateOverrides: "Template overrides",
+  scim: "SCIM provisioning",
+  domainLock: "Domain lock",
 };
 
 export function isPlan(value: unknown): value is Plan {
@@ -40,7 +51,7 @@ export class PlanError extends Error {
   readonly feature: Feature;
   readonly status = 402;
   constructor(feature: Feature) {
-    super(`${feature === "customCss" ? "Custom CSS" : "Template overrides"} needs a paid plan.`);
+    super(`${FEATURE_NAMES[feature]} needs ${UNLOCKS[feature] === ENTERPRISE ? "the enterprise plan" : "a paid plan"}.`);
     this.name = "PlanError";
     this.feature = feature;
   }

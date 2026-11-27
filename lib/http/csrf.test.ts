@@ -157,3 +157,20 @@ describe("billing routes", () => {
     assert.equal(checkMutation(post("/api/billing/portal", { "content-type": "text/plain", "sec-fetch-site": "same-origin" }), "/api/billing/portal").ok, false);
   });
 });
+
+describe("scim and enterprise admin routes", () => {
+  const post = (path: string, headers: Record<string, string>) => new Request(`https://app.example${path}`, { method: "POST", headers, body: "{}" });
+
+  test("SCIM is bearer-only: no Origin needed, application/scim+json and application/json both accepted", () => {
+    assert.deepEqual(checkMutation(post("/api/scim/v2/Users", { "content-type": "application/scim+json" }), "/api/scim/v2/Users"), { ok: true });
+    assert.deepEqual(checkMutation(post("/api/scim/v2/Groups/admin", { "content-type": "application/json; charset=utf-8" }), "/api/scim/v2/Groups/admin"), { ok: true });
+    assert.equal(checkMutation(post("/api/scim/v2/Users", { "content-type": "text/plain" }), "/api/scim/v2/Users").ok, false);
+  });
+
+  test("token and domain admin routes are cookie routes: same-origin JSON only", () => {
+    const path = "/api/orgs/org_1/scim-tokens";
+    assert.equal(checkMutation(post(path, { "content-type": "application/json" }), path).ok, false);
+    assert.equal(checkMutation(post(path, { "content-type": "application/json", "sec-fetch-site": "same-origin" }), path).ok, true);
+    assert.equal(checkMutation(post(path, { "content-type": "text/plain", "sec-fetch-site": "same-origin" }), path).ok, false);
+  });
+});

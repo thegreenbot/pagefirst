@@ -34,6 +34,10 @@ export type AuditEventName =
   | "billing.checkout"
   | "billing.portal"
   | "billing.subscription"
+  | "scim.provision"
+  | "org.scim_token.created"
+  | "org.scim_token.revoked"
+  | "org.domain_lock"
   | "job.started"
   | "job.completed"
   | "request.denied";

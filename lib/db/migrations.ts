@@ -443,6 +443,67 @@ export const MIGRATIONS: Migration[] = [
     `,
   },
   {
+    id: 17,
+    name: "google workspace domain lock and pending memberships",
+    sql: `
+      -- The Google Workspace domain (hd claim) of the account, recorded at sign-in (#49).
+      ALTER TABLE users ADD COLUMN hd text;
+
+      -- When set, only accounts whose hd equals it can use the organization.
+      ALTER TABLE organizations ADD COLUMN enforced_domain text;
+
+      -- Membership granted before the person has signed in (an invite or a SCIM
+      -- provisioning), claimed when a verified Google email matches.
+      CREATE TABLE org_pending_members (
+        org_id     text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        email      text NOT NULL CHECK (email = lower(email)),
+        role       text NOT NULL CHECK (role IN ('owner', 'admin', 'editor', 'viewer')),
+        source     text NOT NULL DEFAULT 'invite',
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (org_id, email)
+      );
+      CREATE INDEX org_pending_members_email_idx ON org_pending_members (email);
+    `,
+  },
+  {
+    id: 18,
+    name: "scim tokens and provisioned users",
+    sql: `
+      -- Per-organization bearer tokens for an identity provider's SCIM client (#49).
+      CREATE TABLE scim_tokens (
+        id           text PRIMARY KEY,
+        org_id       text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        label        text NOT NULL,
+        token_prefix text NOT NULL,
+        token_hash   text NOT NULL UNIQUE,
+        created_by   text REFERENCES users(sub) ON DELETE SET NULL,
+        created_at   timestamptz NOT NULL DEFAULT now(),
+        last_used_at timestamptz,
+        revoked_at   timestamptz
+      );
+      CREATE INDEX scim_tokens_org_idx ON scim_tokens (org_id);
+
+      -- What the identity provider has told us about each person. Membership itself
+      -- lives in org_members (or org_pending_members until the person signs in).
+      CREATE TABLE scim_users (
+        id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id       text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_name    text NOT NULL CHECK (user_name = lower(user_name)),
+        external_id  text,
+        display_name text,
+        given_name   text,
+        family_name  text,
+        active       boolean NOT NULL DEFAULT true,
+        role         text NOT NULL CHECK (role IN ('owner', 'admin', 'editor', 'viewer')),
+        sub          text REFERENCES users(sub) ON DELETE SET NULL,
+        created_at   timestamptz NOT NULL DEFAULT now(),
+        updated_at   timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (org_id, user_name)
+      );
+      CREATE INDEX scim_users_org_role_idx ON scim_users (org_id, role);
+    `,
+  },
+  {
     id: 20,
     name: "bulk jobs",
     sql: `
