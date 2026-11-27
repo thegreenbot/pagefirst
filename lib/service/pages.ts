@@ -1,3 +1,5 @@
+import { databaseConfigured } from "@/lib/db/client";
+import { annotateChanged, changedInDoc } from "./changes";
 import { snapshotPage } from "./snapshots";
 import { buildAdoptRequests, buildCommitRequests } from "@/lib/google/commit";
 import { googleConfigured } from "@/lib/google/config";
@@ -91,7 +93,7 @@ function liveToken(ctx: ServiceContext): string {
   return ctx.googleToken;
 }
 
-export async function listPages(ctx: ServiceContext): Promise<Library> {
+export async function listPages(ctx: ServiceContext, options: { changed?: boolean } = {}): Promise<Library> {
   requireScope(ctx, "pages:read");
   if (isSample(ctx)) {
     ensureSample();
@@ -100,10 +102,10 @@ export async function listPages(ctx: ServiceContext): Promise<Library> {
   const token = liveToken(ctx);
   try {
     const files = await googleFor(ctx).listDocuments(token, ctx.siteFolders);
-    return {
-      sample: false,
-      pages: files.map((file) => ({ fileId: file.id, path: slugify(file.name), title: file.name, revisionId: "", ...(file.modifiedTime ? { modifiedTime: file.modifiedTime } : {}) })),
-    };
+    const summaries: PageSummary[] = files.map((file) => ({ fileId: file.id, path: slugify(file.name), title: file.name, revisionId: "", ...(file.modifiedTime ? { modifiedTime: file.modifiedTime } : {}) }));
+    // Compared with the stored snapshots: one query, no Docs call per page (#30).
+    const annotated = databaseConfigured() ? await annotateChanged(summaries) : summaries;
+    return { sample: false, pages: options.changed ? annotated.filter((page) => page.changed === true) : annotated };
   } catch (err) {
     throw toServiceError(err, "Could not list pages.", (text) => redact(text, token));
   }
@@ -121,8 +123,16 @@ export async function getPage(ctx: ServiceContext, fileId: string): Promise<Page
   const token = liveToken(ctx);
   try {
     await requireFolder(ctx, fileId);
-    const doc = await googleFor(ctx).fetchDocument(token, fileId);
-    return { page: parseDocument(doc, slugify(doc.title ?? "")), sample: false };
+    const google = googleFor(ctx);
+    const doc = await google.fetchDocument(token, fileId);
+    const page = parseDocument(doc, slugify(doc.title ?? ""));
+    const drift = databaseConfigured()
+      ? await changedInDoc(fileId, page.revisionId, async () => {
+          const meta = await google.driveMeta!(token, fileId);
+          return { modifiedTime: meta.modifiedTime, modifiedBy: meta.lastModifiedBy?.email ?? meta.lastModifiedBy?.name ?? null };
+        })
+      : null;
+    return { page, sample: false, ...(drift ? { changedInDoc: drift } : {}) };
   } catch (err) {
     const typed = toServiceError(err, "Could not read the page.", (text) => redact(text, token));
     if (typed.code === "not_found") return null;

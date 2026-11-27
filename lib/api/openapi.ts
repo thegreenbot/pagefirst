@@ -68,6 +68,7 @@ export const openapi = {
         parameters: [
           { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
           { name: "cursor", in: "query", schema: { type: "string" } },
+          { name: "changed", in: "query", description: "true lists only Docs edited in Google Docs since Pagefirst last committed, published or imported them. Each page's `changed` is true when so, and absent for a Doc Pagefirst has not touched.", schema: { type: "boolean" } },
         ],
         responses: { "200": { description: "A page of results with nextCursor" }, default: error },
       },
