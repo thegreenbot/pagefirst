@@ -50,7 +50,7 @@ export async function createDocument(token: string, title: string): Promise<Docs
 const FOLDER_ID = /^[\w-]{10,128}$/;
 
 /** Docs the user can see. With `folderIds`, only Docs directly inside one of those folders. */
-export async function listDocuments(token: string, folderIds?: readonly string[]): Promise<{ id: string; name: string }[]> {
+export async function listDocuments(token: string, folderIds?: readonly string[]): Promise<{ id: string; name: string; modifiedTime?: string }[]> {
   let q = "mimeType='application/vnd.google-apps.document'";
   if (folderIds) {
     const safe = folderIds.filter((id) => FOLDER_ID.test(id));
@@ -58,13 +58,13 @@ export async function listDocuments(token: string, folderIds?: readonly string[]
     q += ` and (${safe.map((id) => `'${id}' in parents`).join(" or ")})`;
   }
   const res = await authorized(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id%2Cname)&pageSize=30`,
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id%2Cname%2CmodifiedTime)&pageSize=30`,
     token,
   );
   if (!res.ok) throw new Error(`Drive list failed (${res.status})`);
-  const json = (await res.json()) as { files?: { id?: string; name?: string }[] };
+  const json = (await res.json()) as { files?: { id?: string; name?: string; modifiedTime?: string }[] };
   return (json.files ?? []).flatMap((file) =>
-    file.id ? [{ id: file.id, name: file.name ?? "" }] : [],
+    file.id ? [{ id: file.id, name: file.name ?? "", ...(file.modifiedTime ? { modifiedTime: file.modifiedTime } : {}) }] : [],
   );
 }
 

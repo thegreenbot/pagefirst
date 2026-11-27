@@ -8,6 +8,7 @@ import { SCOPES } from "@/lib/service/context";
 
 const error = { $ref: "#/components/responses/Error" };
 const secured = [{ bearer: [] }];
+const idempotencyKey = { name: "Idempotency-Key", in: "header", required: true, description: "1 to 255 characters of letters, digits and _ . : -. A retry with the same key and body returns the first response (Idempotent-Replayed: true); the same key with a different body is idempotency_mismatch (422); the same key while the first call runs is in_progress (409). Keys last 24 hours per credential.", schema: { type: "string", maxLength: 255 } };
 const fileId = { name: "fileId", in: "path", required: true, schema: { type: "string" } };
 
 export const openapi = {
@@ -22,6 +23,43 @@ export const openapi = {
     "/openapi.json": {
       get: { operationId: "getOpenApi", summary: "This document", security: [], responses: { "200": { description: "OK" } } },
     },
+    "/content-audit": {
+      get: {
+        operationId: "getContentAudit",
+        summary: "Report stale, expired, thin and near-duplicate pages",
+        parameters: [
+          { name: "staleDays", in: "query", schema: { type: "integer", minimum: 1, maximum: 3650, default: 365 } },
+          { name: "thinWords", in: "query", schema: { type: "integer", minimum: 1, maximum: 5000, default: 120 } },
+          { name: "duplicateThreshold", in: "query", schema: { type: "number", minimum: 0.3, maximum: 1, default: 0.8 } },
+        ],
+        responses: { "200": { description: "The report; truncated is true when more pages exist than were checked" }, default: error },
+      },
+    },
+    "/content-audit/decisions": {
+      get: {
+        operationId: "listAuditDecisions",
+        summary: "A page's audit decision history, newest first",
+        parameters: [{ name: "fileId", in: "query", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "OK" }, default: error },
+      },
+      post: {
+        operationId: "recordAuditDecision",
+        summary: "Record what was decided about a flagged page",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["fileId", "finding", "decision"], properties: { fileId: { type: "string" }, finding: { type: "string", enum: ["stale", "expired", "thin", "duplicate"] }, decision: { type: "string", enum: ["keep", "update", "merge", "rewrite", "noindex", "remove"] }, note: { type: "string", maxLength: 1000 } } } } } },
+        responses: { "201": { description: "Recorded" }, default: error },
+      },
+    },
+    "/audit": {
+      get: {
+        operationId: "listAudit",
+        summary: "The caller's own audit events, newest first",
+        parameters: [
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
+          { name: "cursor", in: "query", schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "Events with nextCursor" }, default: error },
+      },
+    },
     "/pages": {
       get: {
         operationId: "listPages",
@@ -35,6 +73,7 @@ export const openapi = {
       post: {
         operationId: "createPage",
         summary: "Create a page from the template Doc",
+        parameters: [idempotencyKey],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title"], properties: { title: { type: "string", maxLength: 200 } } } } } },
         responses: { "201": { description: "Created" }, default: error },
       },
@@ -46,16 +85,16 @@ export const openapi = {
       post: {
         operationId: "commitPage",
         summary: "Apply ops against a base revision",
-        parameters: [fileId],
+        parameters: [fileId, idempotencyKey],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["baseRevisionId", "ops"], properties: { baseRevisionId: { type: "string" }, ops: { type: "array", items: { type: "object" } } } } } } },
-        responses: { "200": { description: "Committed" }, "409": { description: "revision_conflict" }, default: error },
+        responses: { "200": { description: "Committed" }, "409": { description: "revision_conflict, or in_progress for a duplicate key still running" }, "422": { description: "idempotency_mismatch" }, default: error },
       },
     },
     "/pages/{fileId}/publishes": {
       post: {
         operationId: "publishPage",
         summary: "Publish a pinned revision",
-        parameters: [fileId],
+        parameters: [fileId, idempotencyKey],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["revisionId"], properties: { revisionId: { type: "string" }, public: { type: "boolean" } } } } } },
         responses: { "200": { description: "Published" }, default: error },
       },

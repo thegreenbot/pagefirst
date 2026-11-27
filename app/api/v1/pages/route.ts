@@ -18,12 +18,14 @@ export function GET(request: Request) {
 
 /** Creates a page from the template Doc. */
 export function POST(request: Request) {
-  return v1(request, "v1-pages-create", 20, async (ctx) => {
+  return v1(request, "v1-pages-create", 20, async (ctx, _request, note) => {
     const body = (await readJson(request, 4096)) as { title?: unknown };
     if (typeof body?.title !== "string" || !body.title.trim() || body.title.length > 200) {
       throw new ServiceError("invalid", "title must be text of 1 to 200 characters.");
     }
     const created = await createPage(ctx, body.title.trim());
+    note.fileId = created.page.fileId;
+    note.pagePath = created.page.path;
     return NextResponse.json(created, { status: 201 });
-  });
+  }, { idempotent: true, audit: "page.create" });
 }

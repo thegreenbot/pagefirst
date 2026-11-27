@@ -56,6 +56,9 @@ export default async function Home({
             <Link href="/plan" className="shrink-0 hover:text-ink">
               Plan
             </Link>
+            <Link href="/privacy" className="shrink-0 hover:text-ink">
+              Privacy
+            </Link>
           </nav>
         </div>
       </header>
