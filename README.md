@@ -56,6 +56,10 @@ Register the Google redirect URI as the site origin plus `/api/auth/callback`. I
 
 [infra/instance](infra/instance/README.md) stands up a full instance (app, database, publish bucket and Worker, encryption key) from one config file, for self-hosting or a dedicated single-tenant instance. Upgrades are in [runbooks/instance-upgrade.md](runbooks/instance-upgrade.md).
 
+## MCP
+
+Agents can create, edit, import and publish pages over a remote MCP server at `/api/mcp`, with OAuth or an API key. See [docs/mcp.md](docs/mcp.md).
+
 ## Enterprise
 
 SCIM provisioning and a Google Workspace domain lock live in [enterprise/](enterprise/README.md), under a separate license. Setup: [runbooks/scim-setup.md](runbooks/scim-setup.md).

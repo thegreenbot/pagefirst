@@ -6,6 +6,7 @@ import { rateLimitHeaders } from "@/lib/ratelimit";
 import { readTextCapped } from "@/lib/http/body";
 import { beginIdempotent, finishIdempotent, hashRequest, releaseIdempotent, validIdempotencyKey } from "@/lib/idempotency";
 import { ServiceError, type ServiceContext, type ServiceErrorCode } from "@/lib/service";
+import { isMcpRequest } from "./mcp-marker";
 
 /**
  * Shared plumbing for `/api/v1` (#37): bearer auth only (a cookie is never
@@ -112,6 +113,8 @@ export async function v1(
     return apiError(requestId, "rate_limited", "Too many requests.", null, rateLimitHeaders(limit));
   }
   const ctx: ServiceContext = { ...auth.ctx, requestId };
+  // Calls made by the MCP server are audited as `mcp`, whatever the credential kind.
+  if (isMcpRequest(request)) ctx.actor = { ...ctx.actor, client: "mcp" };
 
   // Mutating calls need an Idempotency-Key: a retried commit or publish runs once (#38).
   let claim: { credentialId: string; key: string } | null = null;
