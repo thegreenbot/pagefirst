@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { PUBLISHED_CSP, renderPublishHtml } from "./render";
+import { renderPageHtml, renderPublishHtml } from "./render";
 import type { Block, Page, Prose } from "./types";
 
 const HOSTILE = [
@@ -84,21 +84,21 @@ describe("renderPublishHtml with hostile Doc content", () => {
 });
 
 describe("published page CSP", () => {
+  const { html, csp } = renderPageHtml(hostilePage("x"));
+
   test("allows no script and only the page's own stylesheet", () => {
-    assert.match(PUBLISHED_CSP, /default-src 'none'/);
-    assert.match(PUBLISHED_CSP, /script-src 'none'/);
-    assert.doesNotMatch(PUBLISHED_CSP, /unsafe-inline|unsafe-eval/);
+    assert.match(csp, /default-src 'none'/);
+    assert.match(csp, /script-src 'none'/);
+    assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval/);
   });
 
   test("the style hash matches the <style> element the page contains", () => {
-    const html = renderPublishHtml(hostilePage("x"));
     const style = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? "";
     const hash = createHash("sha256").update(style).digest("base64");
-    assert.ok(PUBLISHED_CSP.includes(`'sha256-${hash}'`));
+    assert.ok(csp.includes(`'sha256-${hash}'`));
   });
 
   test("is written into the page as a meta tag", () => {
-    const html = renderPublishHtml(hostilePage("x"));
-    assert.ok(html.includes(`<meta http-equiv="Content-Security-Policy" content="${PUBLISHED_CSP}">`));
+    assert.ok(html.includes(`<meta http-equiv="Content-Security-Policy" content="${csp}">`));
   });
 });

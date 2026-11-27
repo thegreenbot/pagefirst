@@ -1,0 +1,18 @@
+{
+  "$schema": "../../lib/theme/theme.schema.json",
+  "name": "@pagefirst/default",
+  "version": "1.0.0",
+  "engine": 1,
+  "description": "The first-party default theme. Plain, fast, and close to the EDS markup.",
+  "templates": {
+    "page": { "label": "Page" }
+  },
+  "blocks": {
+    "hero": { "label": "Hero", "description": "A lead paragraph with an optional image." },
+    "columns": { "label": "Columns", "options": ["contained"] },
+    "cards": { "label": "Cards" }
+  },
+  "sectionStyles": ["highlight", "dark"],
+  "settings": [],
+  "permissions": {}
+}
