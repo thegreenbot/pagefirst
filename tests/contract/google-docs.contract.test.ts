@@ -136,7 +136,8 @@ describe("Google Docs contract", { skip: configured ? false : "TEST_GOOGLE_* sec
 
     const updated = await fetchDocument(token, fileId);
     assert.notEqual(updated.revisionId, baseRevision, "a write changes revisionId (the 409 check relies on this)");
-    assert.equal(bodyText(updated), "Edited heading\nEdited paragraph, longer than before\n");
+    // A new Doc starts with one empty paragraph, which stays after our inserted text.
+    assert.equal(bodyText(updated), "Edited heading\nEdited paragraph, longer than before\n\n");
     const nodes = proseNodes(parseDocument(updated, "contract"));
     assert.deepEqual(
       nodes.slice(0, 2).map((node) => [node.id, node.tag, node.text]),
