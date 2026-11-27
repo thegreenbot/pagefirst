@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Liquid, Tag, Value, type Context, type Emitter, type TagToken, type TopLevelToken } from "liquidjs";
 import type { Block, Page, Prose } from "@/lib/page/types";
 import type { ThemePackage } from "./package";
@@ -16,11 +15,17 @@ export type RenderOptions = {
   template?: string;
   site?: { name?: string; url?: string; lang?: string };
   settings?: Record<string, unknown>;
+  /**
+   * Builds the page's CSP from the exact <style> text, which is written into a
+   * <meta> tag. Server renders pass publishedCsp (lib/theme/csp.ts); the engine
+   * itself has no Node imports so the editor can render in the browser.
+   */
+  csp?: (styleText: string) => string;
 };
 
 export type RenderResult = {
   html: string;
-  /** CSP for this page: no script, only this page's own <style>. */
+  /** The CSP written into the page, or "" when no csp builder was given. */
   csp: string;
   warnings: string[];
 };
@@ -247,19 +252,6 @@ function fallbackBlock(view: BlockView, mode: RenderMode, html: WeakMap<object, 
   return `<div class="${escapeHtml(classes(view.options, view.name))}"${idAttribute(mode, view.id)}>${cells}</div>`;
 }
 
-function cspFor(styleText: string): string {
-  const hash = createHash("sha256").update(styleText).digest("base64");
-  return [
-    "default-src 'none'",
-    "script-src 'none'",
-    `style-src 'sha256-${hash}'`,
-    "img-src 'self' https: data:",
-    "font-src 'self'",
-    "base-uri 'none'",
-    "form-action 'none'",
-  ].join("; ");
-}
-
 function settingDefaults(theme: ThemePackage): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const setting of theme.manifest.settings ?? []) {
@@ -350,13 +342,13 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
     .filter(Boolean)
     .join("\n");
   const styleText = `\n${css}\n`;
-  const csp = cspFor(styleText);
+  const csp = options.csp ? options.csp(styleText) : "";
+  const cspMeta = csp ? `\n<meta http-equiv="Content-Security-Policy" content="${csp.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">` : "";
   const description = pageView.description
     ? `\n<meta name="description" content="${escapeHtml(pageView.description)}">`
     : "";
   const head = `<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="${csp}">
+<meta name="viewport" content="width=device-width, initial-scale=1">${cspMeta}
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${escapeHtml(title)}</title>${description}
 <style>${styleText}</style>`;
