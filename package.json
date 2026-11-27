@@ -2,6 +2,7 @@
   "name": "page-first",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "next dev --turbopack -p 3847 -H 127.0.0.1",
     "build": "next build --turbopack",

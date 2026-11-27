@@ -1,3 +1,9 @@
+# Contributing
+
+Pagefirst is licensed under the [Apache License 2.0](LICENSE). Before your first pull request is merged, agree to the [Contributor License Agreement](CLA.md) by adding this line to the pull request description:
+
+> I have read the Pagefirst Contributor License Agreement and agree to it.
+
 # Git flow
 
 `develop` is the integration branch. `main` is the release line. Pull requests are how commits move. `npm install` points this clone at `.githooks`, which refuses pushes that skip the flow.
