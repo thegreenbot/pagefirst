@@ -13,6 +13,7 @@ import {
   personalOrgId,
   planForSite,
   removeMember,
+  listMemberships,
   requireFeature,
   roleOf,
   seatCount,
@@ -153,5 +154,16 @@ describe("organizations", { skip: url ? false : "set TEST_DATABASE_URL to run Po
       await client.end();
     }
     await resetTestDatabase(url!);
+  });
+
+  test("memberships list the personal organization first, with role and sites, and never another tenant's", async () => {
+    const siteA = await siteForOwner("sub-a");
+    const team = await createOrganization("sub-b", "Team");
+    await addMember(team.id, "sub-a", "editor");
+    const memberships = await listMemberships("sub-a");
+    assert.equal(memberships[0].org.id, personalOrgId("sub-a"));
+    assert.deepEqual(memberships[0].siteIds, [siteA]);
+    assert.deepEqual(memberships.map((m) => [m.org.id === team.id, m.role]).find(([isTeam]) => isTeam), [true, "editor"]);
+    assert.ok(!memberships.some((m) => m.org.id === personalOrgId("sub-b")));
   });
 });
