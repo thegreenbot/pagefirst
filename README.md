@@ -59,6 +59,10 @@ Register the Google redirect URI as the site origin plus `/api/auth/callback`. I
 
 The [threat model](docs/security/threat-model.md) lists what Pagefirst protects, the controls in place and the open gaps. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
+## License
+
+Pagefirst is licensed under the [Apache License 2.0](LICENSE), with a [Contributor License Agreement](CLA.md) for contributions. Enterprise features (SSO/SAML, SCIM) will live in a separate folder under a commercial license, which keeps its own `LICENSE`. The Pagefirst name is covered by a trademark policy, not by the license (see `NOTICE`).
+
 ## Plan
 
 `/plan` still holds the written plan.
