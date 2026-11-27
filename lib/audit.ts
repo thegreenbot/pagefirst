@@ -30,6 +30,9 @@ export type AuditEventName =
   | "api_key.used"
   | "api_key.revoked"
   | "oauth.authorized"
+  | "billing.checkout"
+  | "billing.portal"
+  | "billing.subscription"
   | "job.started"
   | "job.completed"
   | "request.denied";

@@ -380,4 +380,29 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX sites_org_idx ON sites (org_id);
     `,
   },
+  {
+    id: 15,
+    name: "billing: stripe subscriptions per organization",
+    sql: `
+      -- One Stripe customer and at most one live subscription per organization (#47).
+      CREATE TABLE org_billing (
+        org_id                 text PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        stripe_customer_id     text NOT NULL UNIQUE,
+        stripe_subscription_id text UNIQUE,
+        status                 text,
+        plan                   text CHECK (plan IN ('pro', 'team')),
+        billing_interval       text CHECK (billing_interval IN ('month', 'year')),
+        seats                  integer,
+        current_period_end     timestamptz,
+        updated_at             timestamptz NOT NULL DEFAULT now()
+      );
+
+      -- Stripe retries webhooks; each event id is handled once.
+      CREATE TABLE stripe_events (
+        id          text PRIMARY KEY,
+        type        text NOT NULL,
+        received_at timestamptz NOT NULL DEFAULT now()
+      );
+    `,
+  },
 ];
