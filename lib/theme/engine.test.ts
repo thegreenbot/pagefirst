@@ -223,7 +223,7 @@ describe("islands (#60)", () => {
     ];
     for (const [fixture, theme] of cases) {
       const { html, csp, assets } = renderPage(fixture, theme, { csp: publishedCsp, optimizer: nodeOptimizer });
-      assert.doesNotMatch(html, /<script|modulepreload|pf-island/);
+      for (const marker of ["<script", "modulepreload", "pf-island"]) assert.ok(!html.includes(marker), marker);
       assert.match(csp, /script-src 'none'/);
       assert.equal(assets.filter((asset) => asset.path.endsWith(".js")).length, 0);
     }
@@ -239,7 +239,7 @@ describe("islands (#60)", () => {
     assert.ok(moduleAsset);
     assert.match(moduleAsset.path, /^assets\/pf\/[a-f0-9]{16}\.js$/);
     assert.ok(html.includes(`<pf-island data-pf-src="/${moduleAsset.path}" data-pf-load="idle"><div class="map">map</div></pf-island>`));
-    assert.equal((html.match(/<script>/g) ?? []).length, 1);
+    assert.equal(html.split("<script").length - 1, 1, "exactly one script element");
     assert.ok(html.includes(`<script>${ISLAND_LOADER}</script></body>`));
     assert.ok(html.includes("pf-island{display:contents}"));
     assert.doesNotMatch(html, /modulepreload/, "islands below the first section are not preloaded");
@@ -259,7 +259,7 @@ describe("islands (#60)", () => {
 
   test("the editor never ships island JavaScript", () => {
     const { html, assets } = renderPage(twoSections("map", "map"), islandTheme(), { mode: "edit", optimizer: nodeOptimizer });
-    assert.doesNotMatch(html, /<script|pf-island/);
+    for (const marker of ["<script", "pf-island"]) assert.ok(!html.includes(marker), marker);
     assert.equal(assets.length, 0);
   });
 
@@ -267,7 +267,7 @@ describe("islands (#60)", () => {
     const { html, assets, warnings } = renderPage(twoSections("map", "plain"), islandTheme("visible", "<div class=\"map\"></div>"), {
       optimizer: nodeOptimizer,
     });
-    assert.doesNotMatch(html, /<script/);
+    assert.ok(!html.includes("<script"));
     assert.equal(assets.length, 0);
     assert.match(warnings.join("\n"), /no \{% island %\}/);
   });
