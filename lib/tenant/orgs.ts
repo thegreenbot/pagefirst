@@ -8,7 +8,15 @@ export const ROLES = ["owner", "admin", "editor", "viewer"] as const;
 export type Role = (typeof ROLES)[number];
 const RANK: Record<Role, number> = { viewer: 0, editor: 1, admin: 2, owner: 3 };
 
-export type Organization = { id: string; name: string; plan: Plan; createdAt: string };
+export type Organization = { id: string; name: string; plan: Plan; createdAt: string; enforcedDomain: string | null };
+
+/**
+ * SQL condition (aliases `o` for organizations and `u` for users): the
+ * organization has no domain lock, or the user signed in from that Google
+ * Workspace domain. Only Workspace-managed accounts carry an `hd`, so a
+ * personal account that merely uses the same email domain does not pass.
+ */
+const DOMAIN_OK = "(o.enforced_domain IS NULL OR u.hd = o.enforced_domain)";
 
 const asRole = (value: string): Role => (ROLES as readonly string[]).includes(value) ? (value as Role) : "viewer";
 
@@ -25,22 +33,22 @@ export async function ensurePersonalOrg(client: Pick<PoolClient, "query">, sub: 
   return id;
 }
 
-type OrgRow = { id: string; name: string; plan: string; created_at: Date };
-const toOrganization = (row: OrgRow): Organization => ({ id: row.id, name: row.name, plan: isPlan(row.plan) ? row.plan : "free", createdAt: row.created_at.toISOString() });
+type OrgRow = { id: string; name: string; plan: string; created_at: Date; enforced_domain: string | null };
+const toOrganization = (row: OrgRow): Organization => ({ id: row.id, name: row.name, plan: isPlan(row.plan) ? row.plan : "free", createdAt: row.created_at.toISOString(), enforcedDomain: row.enforced_domain });
 
 export async function createOrganization(ownerSub: string, name: string): Promise<Organization> {
   const trimmed = name.trim().slice(0, 80);
   if (!trimmed) throw new Error("An organization needs a name.");
   const id = `org_${randomBytes(9).toString("base64url")}`;
   return transaction(async (client) => {
-    const { rows } = await client.query<OrgRow>("INSERT INTO organizations (id, name) VALUES ($1, $2) RETURNING id, name, plan, created_at", [id, trimmed]);
+    const { rows } = await client.query<OrgRow>("INSERT INTO organizations (id, name) VALUES ($1, $2) RETURNING id, name, plan, created_at, enforced_domain", [id, trimmed]);
     await client.query("INSERT INTO org_members (org_id, sub, role) VALUES ($1, $2, 'owner')", [id, ownerSub]);
     return toOrganization(rows[0]!);
   });
 }
 
 export async function getOrganization(id: string): Promise<Organization | null> {
-  const rows = await query<OrgRow>("SELECT id, name, plan, created_at FROM organizations WHERE id = $1", [id]);
+  const rows = await query<OrgRow>("SELECT id, name, plan, created_at, enforced_domain FROM organizations WHERE id = $1", [id]);
   return rows[0] ? toOrganization(rows[0]) : null;
 }
 
@@ -50,14 +58,24 @@ export async function orgIdForSite(siteId: string): Promise<string | null> {
 }
 
 export async function roleOf(orgId: string, sub: string): Promise<Role | null> {
-  const rows = await query<{ role: string }>("SELECT role FROM org_members WHERE org_id = $1 AND sub = $2", [orgId, sub]);
+  const rows = await query<{ role: string }>(
+    `SELECT m.role FROM org_members m
+       JOIN organizations o ON o.id = m.org_id
+       JOIN users u ON u.sub = m.sub
+      WHERE m.org_id = $1 AND m.sub = $2 AND ${DOMAIN_OK}`,
+    [orgId, sub],
+  );
   return rows[0] ? asRole(rows[0].role) : null;
 }
 
 /** True when the user holds at least `minimum` in the organization that owns the site. A stranger always gets false. */
 export async function canAccessSite(sub: string, siteId: string, minimum: Role = "viewer"): Promise<boolean> {
   const rows = await query<{ role: string }>(
-    "SELECT m.role FROM sites s JOIN org_members m ON m.org_id = s.org_id WHERE s.id = $1 AND m.sub = $2",
+    `SELECT m.role FROM sites s
+       JOIN org_members m ON m.org_id = s.org_id
+       JOIN organizations o ON o.id = s.org_id
+       JOIN users u ON u.sub = m.sub
+      WHERE s.id = $1 AND m.sub = $2 AND ${DOMAIN_OK}`,
     [siteId, sub],
   );
   return rows[0] ? RANK[asRole(rows[0].role)] >= RANK[minimum] : false;
@@ -68,13 +86,14 @@ export type Membership = { org: Organization; role: Role; siteIds: string[] };
 /** The organizations a user belongs to with their role and sites, for the org switcher. Personal organization first. */
 export async function listMemberships(sub: string): Promise<Membership[]> {
   const rows = await query<OrgRow & { role: string; site_ids: string[] | null }>(
-    `SELECT o.id, o.name, o.plan, o.created_at, m.role,
+    `SELECT o.id, o.name, o.plan, o.created_at, o.enforced_domain, m.role,
             COALESCE(array_agg(s.id ORDER BY s.created_at) FILTER (WHERE s.id IS NOT NULL), '{}') AS site_ids
        FROM org_members m
        JOIN organizations o ON o.id = m.org_id
+       JOIN users u ON u.sub = m.sub
        LEFT JOIN sites s ON s.org_id = o.id
-      WHERE m.sub = $1
-      GROUP BY o.id, o.name, o.plan, o.created_at, m.role
+      WHERE m.sub = $1 AND ${DOMAIN_OK}
+      GROUP BY o.id, o.name, o.plan, o.created_at, o.enforced_domain, m.role
       ORDER BY (o.id = $2) DESC, o.created_at`,
     [sub, personalOrgId(sub)],
   );
@@ -152,4 +171,69 @@ export async function deleteOrganization(orgId: string): Promise<void> {
     return orphans;
   });
   for (const sub of orphans) await revokeAllForUser(sub);
+}
+
+const DOMAIN = /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/;
+
+/** A lowercase domain name, or null when the text is not one. */
+export function normalizeDomain(value: string): string | null {
+  const domain = value.trim().toLowerCase();
+  return DOMAIN.test(domain) ? domain : null;
+}
+
+/**
+ * Locks an organization to a Google Workspace domain, or clears the lock with
+ * null. Members whose account is not in that domain lose access until it is
+ * cleared; the caller must check that the person setting it passes the lock.
+ */
+export async function setEnforcedDomain(orgId: string, domain: string | null): Promise<void> {
+  const normalized = domain === null ? null : normalizeDomain(domain);
+  if (domain !== null && !normalized) throw new Error("Enter a domain like example.com.");
+  await query("UPDATE organizations SET enforced_domain = $2 WHERE id = $1", [orgId, normalized]);
+}
+
+export type PendingMember = { orgId: string; email: string; role: Role; source: string };
+
+/** Grants a role to an email address before that person has signed in. Replaces an earlier pending role. */
+export async function addPendingMember(orgId: string, email: string, role: Role, source = "invite"): Promise<void> {
+  if (!ROLES.includes(role)) throw new Error("Unknown role.");
+  await query(
+    `INSERT INTO org_pending_members (org_id, email, role, source) VALUES ($1, lower($2), $3, $4)
+     ON CONFLICT (org_id, email) DO UPDATE SET role = EXCLUDED.role, source = EXCLUDED.source`,
+    [orgId, email.trim(), role, source],
+  );
+}
+
+export async function removePendingMember(orgId: string, email: string): Promise<boolean> {
+  const rows = await query("DELETE FROM org_pending_members WHERE org_id = $1 AND email = lower($2) RETURNING email", [orgId, email.trim()]);
+  return rows.length > 0;
+}
+
+export async function listPendingMembers(orgId: string): Promise<PendingMember[]> {
+  const rows = await query<{ org_id: string; email: string; role: string; source: string }>(
+    "SELECT org_id, email, role, source FROM org_pending_members WHERE org_id = $1 ORDER BY email",
+    [orgId],
+  );
+  return rows.map((r) => ({ orgId: r.org_id, email: r.email, role: asRole(r.role), source: r.source }));
+}
+
+/**
+ * Turns pending memberships for a verified Google email into real ones at
+ * sign-in. A domain-locked organization only claims for an account in its
+ * domain; the rest stay pending. Returns the organizations joined.
+ */
+export async function claimPendingMemberships(sub: string, email: string, hd: string | null): Promise<string[]> {
+  const rows = await query<{ org_id: string; role: string; enforced_domain: string | null }>(
+    `SELECT p.org_id, p.role, o.enforced_domain FROM org_pending_members p
+       JOIN organizations o ON o.id = p.org_id WHERE p.email = lower($1)`,
+    [email.trim()],
+  );
+  const joined: string[] = [];
+  for (const row of rows) {
+    if (row.enforced_domain && row.enforced_domain !== hd) continue;
+    await addMember(row.org_id, sub, asRole(row.role));
+    await query("DELETE FROM org_pending_members WHERE org_id = $1 AND email = lower($2)", [row.org_id, email.trim()]);
+    joined.push(row.org_id);
+  }
+  return joined;
 }

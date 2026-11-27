@@ -399,4 +399,27 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idempotency_keys_expires_idx ON idempotency_keys (expires_at);
     `,
   },
+  {
+    id: 17,
+    name: "google workspace domain lock and pending memberships",
+    sql: `
+      -- The Google Workspace domain (hd claim) of the account, recorded at sign-in (#49).
+      ALTER TABLE users ADD COLUMN hd text;
+
+      -- When set, only accounts whose hd equals it can use the organization.
+      ALTER TABLE organizations ADD COLUMN enforced_domain text;
+
+      -- Membership granted before the person has signed in (an invite or a SCIM
+      -- provisioning), claimed when a verified Google email matches.
+      CREATE TABLE org_pending_members (
+        org_id     text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        email      text NOT NULL CHECK (email = lower(email)),
+        role       text NOT NULL CHECK (role IN ('owner', 'admin', 'editor', 'viewer')),
+        source     text NOT NULL DEFAULT 'invite',
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (org_id, email)
+      );
+      CREATE INDEX org_pending_members_email_idx ON org_pending_members (email);
+    `,
+  },
 ];
