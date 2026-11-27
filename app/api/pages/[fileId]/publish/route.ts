@@ -4,7 +4,7 @@ import { googleConfigured } from "@/lib/google/config";
 import { fetchGoogleIdentity } from "@/lib/google/userinfo";
 import { mayPublishPublicly } from "@/lib/publish/allowlist";
 import { isSafeId, type PublishResult } from "@/lib/page/types";
-import { renderPublishHtml } from "@/lib/page/render";
+import { renderPageHtml } from "@/lib/page/render";
 import { uploadToCloudflare } from "@/lib/publish/cloudflare";
 import { savePreview } from "@/lib/publish/preview";
 import { getPage } from "@/lib/store";
@@ -52,8 +52,8 @@ export async function POST(
     return NextResponse.json({ error: "Page not found" }, { status: 404 });
   }
 
-  const html = await renderPublishHtml(payload.page);
-  await savePreview(fileId, html, payload.page.revisionId);
+  const { html, csp } = renderPageHtml(payload.page, "publish");
+  await savePreview(fileId, html, csp, payload.page.revisionId);
 
   const body: PublishResponse = {
     ok: true,
