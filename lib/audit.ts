@@ -17,6 +17,7 @@ export type AuditEventName =
   | "page.commit"
   | "page.import"
   | "page.publish"
+  | "job.started"
   | "page.presentation"
   | "site.theme.update"
   | "site.theme.preview"
