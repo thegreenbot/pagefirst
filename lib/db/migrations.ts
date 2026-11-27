@@ -567,4 +567,28 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX jobs_webhook_due_idx ON jobs (webhook_next_at) WHERE webhook_state = 'pending';
     `,
   },
+  {
+    id: 24,
+    name: "page snapshots",
+    sql: `
+      -- The parsed page at each commit, public publish and import (#29, ADR 0006).
+      -- An import diffs the Doc against the newest of these. Retention keeps the
+      -- newest 20 per Doc and always the newest published one.
+      CREATE TABLE page_snapshots (
+        id bigserial PRIMARY KEY,
+        file_id text NOT NULL,
+        revision_id text NOT NULL,
+        source text NOT NULL CHECK (source IN ('commit', 'publish', 'import')),
+        actor_sub text,
+        content_hash text NOT NULL,
+        doc_modified_time timestamptz,
+        modified_by text,
+        page jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (file_id, revision_id, source)
+      );
+      CREATE INDEX page_snapshots_file_idx ON page_snapshots (file_id, id DESC);
+      CREATE INDEX page_snapshots_published_idx ON page_snapshots (file_id, id DESC) WHERE source = 'publish';
+    `,
+  },
 ];
