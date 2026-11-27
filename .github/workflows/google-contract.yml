@@ -1,0 +1,56 @@
+name: Google contract
+
+# Runs the real-Google contract test (tests/contract) against a throwaway Doc.
+# Secrets live in the google-contract environment, which only develop and main
+# can deploy to, so pull requests from forks never see them.
+on:
+  schedule:
+    - cron: "17 9 * * 1" # Mondays 09:17 UTC
+  workflow_dispatch:
+  # Scheduled and manual runs only work once this file is on main (the default
+  # branch). Pushes to develop that touch the Google code run it too.
+  push:
+    branches:
+      - develop
+    paths:
+      - "lib/google/**"
+      - "lib/page/**"
+      - "tests/contract/**"
+      - ".github/workflows/google-contract.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: google-contract
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: google-contract
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Fail fast when secrets are missing
+        env:
+          TEST_GOOGLE_CLIENT_ID: ${{ secrets.TEST_GOOGLE_CLIENT_ID }}
+          TEST_GOOGLE_CLIENT_SECRET: ${{ secrets.TEST_GOOGLE_CLIENT_SECRET }}
+          TEST_GOOGLE_REFRESH_TOKEN: ${{ secrets.TEST_GOOGLE_REFRESH_TOKEN }}
+        run: |
+          for name in TEST_GOOGLE_CLIENT_ID TEST_GOOGLE_CLIENT_SECRET TEST_GOOGLE_REFRESH_TOKEN; do
+            if [ -z "${!name}" ]; then echo "::error::$name is not set in the google-contract environment"; exit 1; fi
+          done
+      - name: Contract test
+        env:
+          TEST_GOOGLE_CLIENT_ID: ${{ secrets.TEST_GOOGLE_CLIENT_ID }}
+          TEST_GOOGLE_CLIENT_SECRET: ${{ secrets.TEST_GOOGLE_CLIENT_SECRET }}
+          TEST_GOOGLE_REFRESH_TOKEN: ${{ secrets.TEST_GOOGLE_REFRESH_TOKEN }}
+        run: npm run test:contract
