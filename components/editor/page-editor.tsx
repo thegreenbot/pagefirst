@@ -920,10 +920,57 @@ function Inspector({
   );
 }
 
+type ChangeReportView = {
+  from: { theme: string; version: string };
+  to: { theme: string; version: string };
+  pages: number;
+  sampled: number;
+  changed: number;
+  overBudget: number;
+  failed: number;
+  diff: "pixels" | "markup";
+  results: {
+    fileId: string;
+    path: string;
+    previewPath: string | null;
+    changed: boolean;
+    breaches: { label: string; actual: number; limit: number; unit: string }[];
+    pixelDiff: number | null;
+    error: string | null;
+  }[];
+};
+
+/** Republishes pages one by one, waiting out the publish rate limit. Returns the paths that failed. */
+async function republish(pages: { fileId: string; path: string }[], onStatus: (message: string) => void): Promise<string[]> {
+  const failed: string[] = [];
+  for (const [index, page] of pages.entries()) {
+    onStatus(`Republishing ${index + 1} of ${pages.length}: ${page.path}`);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await fetch(`/api/pages/${encodeURIComponent(page.fileId)}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ public: true }),
+      });
+      if (response.status === 429) {
+        const wait = Math.min(60, Number(response.headers.get("Retry-After")) || 10);
+        await new Promise((resolve) => setTimeout(resolve, wait * 1000));
+        continue;
+      }
+      const body = (await readJson(response)) as { url?: string; warning?: string } | null;
+      if (!response.ok || !body?.url) failed.push(page.path);
+      break;
+    }
+  }
+  return failed;
+}
+
 /**
- * Switches the site to another theme (#64). The new theme's package is
- * verified and loaded on the server, so the editor reloads to pick it up;
- * that is why uncommitted edits block a switch.
+ * Switches the site to another theme (#64), previewed first (#66): a sample
+ * of the site's published pages is rendered with the new theme, and the
+ * author sees which changed and whether any breaks a budget before applying.
+ * Applying saves the new lock and republishes the site's pages; the editor
+ * then reloads to pick up the new package, which is why uncommitted edits
+ * block a switch.
  */
 function ThemePicker({
   current,
@@ -936,43 +983,127 @@ function ThemePicker({
   disabled: boolean;
   onStatus: (message: string) => void;
 }) {
-  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<{ id: string; report: ChangeReportView } | null>(null);
+
   async function choose(themeName: string) {
     if (themeName === current) return;
-    setSaving(true);
+    setBusy(true);
     try {
-      const response = await fetch("/api/site/theme", {
-        method: "PUT",
+      const response = await fetch("/api/site/theme/previews", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ themeName }),
       });
-      if (response.ok) {
-        window.location.reload();
-        return;
-      }
-      onStatus(errorText(await readJson(response), response));
+      const body = await readJson(response);
+      if (response.ok) setPreview(body as { id: string; report: ChangeReportView });
+      else onStatus(errorText(body, response));
     } catch (error) {
       onStatus(messageOf(error));
     }
-    setSaving(false);
+    setBusy(false);
   }
+
+  async function resolve(action: "apply" | "discard") {
+    if (!preview) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/site/theme/previews/${encodeURIComponent(preview.id)}/${action}`, { method: "POST" });
+      const body = await readJson(response);
+      if (!response.ok) {
+        onStatus(errorText(body, response));
+        setBusy(false);
+        return;
+      }
+      if (action === "discard") {
+        setPreview(null);
+        onStatus("Theme change discarded.");
+        setBusy(false);
+        return;
+      }
+      const pages = (body as { republish: { fileId: string; path: string }[] }).republish;
+      const failed = await republish(pages, onStatus);
+      if (failed.length) {
+        // Keep the message on screen; the editor picks up the new theme on the next load.
+        onStatus(`Theme applied. These pages did not republish; publish them again: ${failed.join(", ")}`);
+        setPreview(null);
+        setBusy(false);
+        return;
+      }
+      window.location.reload();
+    } catch (error) {
+      onStatus(messageOf(error));
+      setBusy(false);
+    }
+  }
+
+  const report = preview?.report;
   return (
-    <label className="mt-6 block text-sm text-ink">
-      Theme
-      <select
-        className="mt-1 w-full border border-rule bg-paper px-2 py-1 text-sm text-ink"
-        value={current}
-        disabled={disabled || saving}
-        onChange={(event) => void choose(event.target.value)}
-      >
-        {themes.map((option) => (
-          <option key={option.name} value={option.name}>
-            {option.name.replace(/^@pagefirst\//, "")} {option.version}
-          </option>
-        ))}
-      </select>
-      {disabled ? <span className="mt-1 block text-xs text-ink-soft">Commit your edits before switching themes.</span> : null}
-    </label>
+    <div className="mt-6">
+      <label className="block text-sm text-ink">
+        Theme
+        <select
+          className="mt-1 w-full border border-rule bg-paper px-2 py-1 text-sm text-ink"
+          value={preview ? report!.to.theme : current}
+          disabled={disabled || busy || preview !== null}
+          onChange={(event) => void choose(event.target.value)}
+        >
+          {themes.map((option) => (
+            <option key={option.name} value={option.name}>
+              {option.name.replace(/^@pagefirst\//, "")} {option.version}
+            </option>
+          ))}
+        </select>
+        {disabled ? <span className="mt-1 block text-xs text-ink-soft">Commit your edits before switching themes.</span> : null}
+      </label>
+      {report ? (
+        <div className="mt-3 border border-rule px-3 py-3 text-sm text-ink" role="region" aria-label="Theme change preview">
+          <p>
+            {report.from.theme.replace(/^@pagefirst\//, "")} {report.from.version} to {report.to.theme.replace(/^@pagefirst\//, "")} {report.to.version}
+          </p>
+          <p className="mt-1 text-xs text-ink-soft">
+            {report.sampled === 0
+              ? "No published pages yet, so there is nothing to compare."
+              : `${report.changed} of ${report.sampled} sampled pages change` +
+                (report.pages > report.sampled ? ` (the site has ${report.pages})` : "") +
+                `. ${report.overBudget ? `${report.overBudget} over budget.` : "All within budget."}` +
+                (report.failed ? ` ${report.failed} could not render.` : "") +
+                (report.diff === "markup" ? " Compared by markup." : "")}
+          </p>
+          <ul className="mt-2 grid gap-1 text-xs">
+            {report.results.map((result) => (
+              <li key={result.fileId}>
+                {result.previewPath ? (
+                  <a className="underline" href={result.previewPath} target="_blank" rel="noreferrer">
+                    {result.path}
+                  </a>
+                ) : (
+                  result.path
+                )}{" "}
+                {result.error
+                  ? `could not render: ${result.error}`
+                  : result.changed
+                    ? `changed${result.pixelDiff !== null ? `, ${(result.pixelDiff * 100).toFixed(1)}% of pixels` : ""}`
+                    : "unchanged"}
+                {result.breaches.map((breach) => (
+                  <span key={breach.label} className="block text-red-700">
+                    Over budget: {breach.label} {breach.actual} &gt; {breach.limit} {breach.unit}
+                  </span>
+                ))}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 flex gap-2">
+            <button type="button" className="border border-ink px-3 py-1" disabled={busy} onClick={() => void resolve("apply")}>
+              Apply and republish
+            </button>
+            <button type="button" className="border border-rule px-3 py-1" disabled={busy} onClick={() => void resolve("discard")}>
+              Discard
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

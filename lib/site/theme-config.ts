@@ -288,7 +288,16 @@ export async function readSiteTheme(siteId: string): Promise<SiteThemeConfig> {
  * version; anything else keeps the lock, so publishes render the same bytes.
  */
 export async function updateSiteTheme(siteId: string, input: unknown): Promise<SiteThemeConfig> {
-  const current = await readSiteTheme(siteId);
+  const next = await resolveUpdate(await readSiteTheme(siteId), input);
+  await saveSiteTheme(siteId, next);
+  return next;
+}
+
+/**
+ * The config an update would produce, without saving it: the same validation
+ * and re-locking as a real update. Theme change previews (#66) render with it.
+ */
+export async function resolveUpdate(current: SiteThemeConfig, input: unknown): Promise<SiteThemeConfig> {
   // Shape first, so a bad name or range fails before any lookup.
   const raw = isRecord(input) ? input : {};
   if (raw.themeName !== undefined && (typeof raw.themeName !== "string" || !THEME_NAME.test(raw.themeName))) {
@@ -307,8 +316,16 @@ export async function updateSiteTheme(siteId: string, input: unknown): Promise<S
   }
   const target = await lockedPackage(lock.integrity);
   const update = validateUpdate(input, target.manifest, target);
-  const next: SiteThemeConfig = { ...current, ...update, themeName, versionRange, lock };
-  await query(
+  return { ...current, ...update, themeName, versionRange, lock };
+}
+
+/** Writes a resolved config, on the given connection when inside a transaction. */
+export async function saveSiteTheme(
+  siteId: string,
+  next: SiteThemeConfig,
+  run: (sql: string, params: unknown[]) => Promise<unknown> = query,
+): Promise<void> {
+  await run(
     `UPDATE site_themes SET theme_name = $2, version_range = $3, tokens = $4, settings = $5, custom_css = $6,
        template_overrides = $7, locks = $8, locked_version = $9, locked_integrity = $10, updated_at = now()
      WHERE site_id = $1`,
@@ -325,7 +342,6 @@ export async function updateSiteTheme(siteId: string, input: unknown): Promise<S
       next.lock.integrity,
     ],
   );
-  return next;
 }
 
 export async function readPresentation(siteId: string, fileId: string): Promise<PagePresentation> {

@@ -251,4 +251,36 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE site_themes DROP CONSTRAINT site_themes_locked_integrity_fkey;
     `,
   },
+  {
+    id: 10,
+    name: "site pages and theme change previews",
+    sql: `
+      -- Each page a site has published (#66): what a theme change previews and
+      -- what applying it republishes.
+      CREATE TABLE site_pages (
+        site_id      text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        file_id      text NOT NULL,
+        path         text NOT NULL,
+        revision_id  text,
+        published_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (site_id, file_id)
+      );
+      CREATE INDEX site_pages_recent_idx ON site_pages (site_id, published_at DESC);
+
+      -- A dry run of a theme change: the change, the lock it was measured
+      -- against, and the report. Applying checks the site has not moved on.
+      CREATE TABLE theme_change_previews (
+        id          text PRIMARY KEY,
+        site_id     text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        change      jsonb NOT NULL,
+        from_config jsonb NOT NULL,
+        to_config   jsonb NOT NULL,
+        report      jsonb NOT NULL,
+        status      text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'applied', 'discarded')),
+        created_at  timestamptz NOT NULL DEFAULT now(),
+        resolved_at timestamptz
+      );
+      CREATE INDEX theme_change_previews_site_idx ON theme_change_previews (site_id, created_at DESC);
+    `,
+  },
 ];

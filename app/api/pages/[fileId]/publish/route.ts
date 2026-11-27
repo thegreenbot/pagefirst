@@ -12,6 +12,7 @@ import { getPage } from "@/lib/store";
 import { renderContextFor, siteForOwner } from "@/lib/site/theme-config";
 import { auditRequest } from "@/lib/audit-request";
 import { publishToOwnSite, sitePublishingEnabled } from "@/lib/publish/sites";
+import { recordSitePage } from "@/lib/site/theme-preview";
 
 export const dynamic = "force-dynamic";
 
@@ -107,6 +108,8 @@ export async function POST(
       const siteImages = await encodeMissing(imagePlan.planned, (image) => uploaded.has(image.hash));
       const published = await publishToOwnSite(writer.sub, payload.page.path, { html, csp, preloads, assets: [...assets, ...siteImages.assets] });
       await recordSiteRenditions(published.siteId, siteImages.encoded);
+      // Theme change previews sample these pages, and applying one republishes them (#66).
+      await recordSitePage(published.siteId, { fileId, path: payload.page.path, revisionId: payload.page.revisionId });
       body.url = published.url;
       await audit("ok", "public", published.siteId);
     } catch (error) {

@@ -143,6 +143,15 @@ A theme version is a deterministic `.tgz` of its directory (sorted paths, zero t
 - **First party only.** v1 ships two themes, `@pagefirst/default` and `@pagefirst/editorial`. The editor lists every available theme and switches with a reload, since the new package is verified on the server.
 - **Publishing** from a tagged CI run with GitHub OIDC trusted publishing and a Sigstore attestation is the second part of #64.
 
+### 14. Theme changes are previewed before they apply (#66)
+
+Any theme change (a new theme, an upgrade, tokens, settings, custom CSS, overrides) can run as a dry run first. `resolveUpdate` builds the candidate config with the same validation and re-locking as a real update, without saving it.
+
+- **What is previewed.** Each public publish records the page in `site_pages`. A preview renders up to five of the most recently published pages with the live config and with the candidate, reading each page's content from its Doc.
+- **The report.** For each page: whether the HTML changed, the candidate's byte measurements and any budget it breaks, a preview URL of the candidate render, and errors (for example a Doc that can no longer be read). With `CLOUDFLARE_BROWSER_TOKEN` set, changed pages are also screenshotted by Cloudflare Browser Run and compared pixel by pixel; otherwise the diff is by markup only.
+- **Applying.** `theme_change_previews` keeps the change, the config it was measured against and the candidate. Applying refuses unless the preview is open and the site's config still equals the one it was measured against, so what goes live is exactly what was previewed. It then saves the candidate lock and returns the site's pages; the editor republishes them. Nothing on the public site changes until each page is republished.
+- **Discarding** marks the preview discarded; the site keeps its theme.
+
 ## Consequences
 
 - `render.ts` keeps only orchestration; markup and styles move to `themes/default` (#54).
