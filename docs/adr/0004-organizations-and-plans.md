@@ -6,7 +6,7 @@
 
 ## Context
 
-The hosted service needs a tenant boundary, and paid features (custom CSS and template overrides, #65) need a plan to check. Billing (#47) is not built yet.
+The hosted service needs a tenant boundary, and paid features (custom CSS and template overrides, #65) need a plan to check. Billing (#47) is Stripe: see [runbooks/billing.md](../../runbooks/billing.md).
 
 ## Decision
 
@@ -16,7 +16,7 @@ The hosted service needs a tenant boundary, and paid features (custom CSS and te
 - **Features**: brand tokens are on every plan. `customCss` and `templateOverrides` need a paid plan.
 - **Editions**: gating applies only when `PAGEFIRST_EDITION=hosted`. Self-hosted installs, the default, are never gated.
 - `requireFeature(siteId, feature)` throws `PlanError` (HTTP 402) and is what #65 calls before saving custom CSS or an override.
-- Cancelling deletes the organization, its sites and their data, and revokes API keys and deletes the Google grant of members who belong to no other organization.
+- A lapsed or cancelled subscription returns the organization to `free`; it does not delete anything. An explicit account deletion is separate: it deletes the organization, its sites and their data, and revokes API keys and deletes the Google grant of members who belong to no other organization.
 
 ## Not yet
 
