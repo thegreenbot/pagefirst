@@ -196,4 +196,22 @@ describe("site theme store", { skip: url ? false : "set TEST_DATABASE_URL to run
       delete process.env.PAGEFIRST_EDITION;
     }
   });
+
+  test("template overrides need a paid plan when hosted and stop rendering after a downgrade", async () => {
+    const sub = "owner-overrides";
+    const site = await siteForOwner(sub);
+    const overrides = { templateOverrides: { "layouts/page": "<html><head>{% pf_head %}</head><body>{% pf_node %}</body></html>" } };
+    process.env.PAGEFIRST_EDITION = "hosted";
+    try {
+      await assert.rejects(updateSiteTheme(site, overrides), PlanError);
+      await setPlan(personalOrgId(sub), "pro");
+      await updateSiteTheme(site, overrides);
+      assert.deepEqual(Object.keys((await renderContextFor(sub, "f")).config?.templateOverrides ?? {}), ["layouts/page"]);
+      await setPlan(personalOrgId(sub), "free");
+      assert.deepEqual((await renderContextFor(sub, "f")).config?.templateOverrides, {});
+      assert.equal(Object.keys((await readSiteTheme(site)).templateOverrides).length, 1);
+    } finally {
+      delete process.env.PAGEFIRST_EDITION;
+    }
+  });
 });

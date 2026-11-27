@@ -1,3 +1,4 @@
+import { overrideConflicts, type OverrideConflict } from "@/lib/theme/diff";
 import { createHash, randomBytes } from "node:crypto";
 import { query, transaction } from "@/lib/db/client";
 import { renderPageHtml } from "@/lib/page/render";
@@ -52,6 +53,8 @@ export type ChangeReport = {
   /** "pixels" when screenshots were compared, else "markup" (HTML compared only). */
   diff: "pixels" | "markup";
   results: PageReport[];
+  /** Overridden templates whose original changed in the new theme version (#65), with what changed. */
+  overrideConflicts?: OverrideConflict[];
 };
 
 export type ChangePreview = {
@@ -165,6 +168,7 @@ export async function previewChange(siteId: string, change: unknown, options: Pr
     failed: results.filter((result) => result.error).length,
     diff: screenshots && results.some((result) => result.pixelDiff !== null) ? "pixels" : "markup",
     results,
+    overrideConflicts: overrideConflicts(candidate.templateOverrides, liveTheme.templates, candidateTheme.templates),
   };
   const rows = await query<{ created_at: Date }>(
     `INSERT INTO theme_change_previews (id, site_id, change, from_config, to_config, report)
