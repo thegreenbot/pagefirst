@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { NewPageForm } from "@/components/new-page-form";
 import type { Library } from "@/lib/page/types";
 import { createPage, listPages } from "@/lib/store";
+import { auditAction } from "@/lib/audit-request";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ async function createPageAction(formData: FormData) {
   const trimmed = typeof value === "string" ? value.trim() : "";
   const title = trimmed || "Untitled";
   const created = await createPage(title);
+  await auditAction({ event: "page.create", outcome: "ok", fileId: created.page.fileId, resultRevisionId: created.page.revisionId });
   redirect(`/edit/${created.page.fileId}`);
 }
 

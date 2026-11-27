@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { callerKey, checkRateLimit, requireGoogleWriter, sameOrigin, tooManyRequests } from "@/lib/guard";
 import { googleConfigured } from "@/lib/google/config";
 import { saveMedia } from "@/lib/media";
+import { auditRequest } from "@/lib/audit-request";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ export async function POST(request: Request) {
   }
   const limit = checkRateLimit(`media:${callerKey(writer.token, request)}`, 8);
   if (!limit.ok) {
+    await auditRequest(request, { event: "request.denied", outcome: "denied", status: 429, errorCode: "rate_limited:media" });
     return tooManyRequests("Too many uploads. Wait a minute.", limit.retryAfterSeconds);
   }
 
@@ -43,6 +45,7 @@ export async function POST(request: Request) {
 
   try {
     const { id } = saveMedia(bytes, mime);
+    await auditRequest(request, { event: "media.upload", outcome: "ok", fileId: id, status: 200 });
     return NextResponse.json({ id, driveFileId: id });
   } catch (error) {
     if (error instanceof Error && error.message === "Image is too large") {

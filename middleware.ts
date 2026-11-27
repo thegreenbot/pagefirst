@@ -15,8 +15,18 @@ export function middleware(request: NextRequest) {
 
   if (pathname.startsWith("/api/")) {
     const verdict = checkMutation(request, pathname);
-    if (verdict.ok) return NextResponse.next();
-    return NextResponse.json({ error: verdict.error }, { status: verdict.status });
+    // One id per request, shared by the audit row and the log lines (#17).
+    const requestId = request.headers.get("x-vercel-id") || crypto.randomUUID();
+    if (!verdict.ok) {
+      // The edge can't reach Postgres, so a CSRF refusal is a log line only.
+      console.warn(JSON.stringify({ level: "warn", type: "request_denied", requestId, path: pathname, status: verdict.status }));
+      return NextResponse.json({ error: verdict.error }, { status: verdict.status, headers: { "x-request-id": requestId } });
+    }
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-request-id", requestId);
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
+    response.headers.set("x-request-id", requestId);
+    return response;
   }
 
   const nonce = createNonce();
