@@ -17,9 +17,12 @@ npm run test:coverage  # unit tests with the coverage floor for lib/google and l
 npm run build
 npm run test:http      # route handlers over HTTP against the build, with a fake Google
 npm run test:e2e       # Playwright smoke test of the editor in sample mode
+npm run test:contract  # real Google Docs/Drive contract test (skips without TEST_GOOGLE_* env)
 ```
 
 `test:http` and `test:e2e` need `npm run build` first. `test:e2e` needs a Chromium from `npx playwright install chromium`, or set `PLAYWRIGHT_CHROMIUM_PATH` to one already installed.
+
+`test:contract` talks to real Google. It creates a throwaway Doc, adopts and commits edits through `lib/google`, checks the result, and deletes the Doc. It needs `TEST_GOOGLE_CLIENT_ID`, `TEST_GOOGLE_CLIENT_SECRET` and `TEST_GOOGLE_REFRESH_TOKEN` for an OAuth client in the separate `pagefirst-contract` Google Cloud project, with the scopes `documents` and `drive.file`. CI runs it weekly and on demand from the **Google contract** workflow, using secrets in the `google-contract` environment.
 
 ## Sample mode
 
