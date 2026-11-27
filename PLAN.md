@@ -289,5 +289,6 @@ These have no slice because each one breaks the Doc as a readable source, or nee
 | CDN | Cloudflare Pages Direct Upload. Local `./out` when the token is absent. |
 | Shareable preview host | After slice 4. The editor is the preview until then. |
 | Database | Neon Postgres for sessions, tokens, audit, snapshots and site config; Upstash Redis for shared rate limits. See `docs/adr/0001-persistent-store.md`. |
+| Machine auth | Scoped API keys tied to the user's stored Google grant; OAuth 2.1 for MCP. No Workspace service account. See `docs/adr/0003-machine-authentication.md`. |
 | Conflict policy | 409 and reload. No merge in the first version. |
 | Stack | Next.js and TypeScript, when implementation starts. |

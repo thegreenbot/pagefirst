@@ -1,7 +1,7 @@
-import { batchUpdate, createDocument, fetchDocument, listDocuments } from "@/lib/google/docs";
+import { batchUpdate, createDocument, fetchDocument, listDocuments, parentsOf } from "@/lib/google/docs";
 import { ServiceError, type GoogleClient } from "./context";
 
-export const realGoogle: GoogleClient = { listDocuments, fetchDocument, createDocument, batchUpdate };
+export const realGoogle: GoogleClient = { listDocuments, fetchDocument, createDocument, batchUpdate, parentsOf };
 
 /** Reads the status out of the Docs wrapper's "... failed (404)" message, once, here. */
 export function upstreamStatus(err: unknown): number | null {

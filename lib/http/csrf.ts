@@ -8,12 +8,13 @@ export const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 /**
  * Routes authenticated by a bearer token only, never a cookie, so a cross-site
  * request gains nothing: the theme registry's trusted-publishing upload (#64),
- * called from GitHub Actions with an OIDC token.
+ * called from GitHub Actions with an OIDC token, and the versioned API, which
+ * authenticates with an API key or OAuth token and ignores cookies (#36).
  */
-const TOKEN_ROUTES = [/^\/api\/registry\/versions$/];
+const TOKEN_ROUTES = [/^\/api\/registry\/versions$/, /^\/api\/v1\//];
 
 /** Routes whose body, when there is one, must be JSON. */
-const JSON_ROUTES = [/^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/, ...TOKEN_ROUTES];
+const JSON_ROUTES = [/^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/, /^\/api\/keys$/, ...TOKEN_ROUTES];
 
 function configuredOrigin(): string | null {
   const value = process.env.APP_URL?.trim();

@@ -283,4 +283,26 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX theme_change_previews_site_idx ON theme_change_previews (site_id, created_at DESC);
     `,
   },
+  {
+    id: 11,
+    name: "api keys",
+    sql: `
+      -- Scoped credentials for scripts and agents (#36). The key itself is never
+      -- stored, only its SHA-256, so a database leak cannot be replayed.
+      CREATE TABLE api_keys (
+        id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        sub          text NOT NULL REFERENCES users(sub) ON DELETE CASCADE,
+        name         text NOT NULL,
+        key_prefix   text NOT NULL,
+        key_hash     text NOT NULL UNIQUE,
+        scopes       text[] NOT NULL,
+        site_folders text[],
+        expires_at   timestamptz NOT NULL,
+        created_at   timestamptz NOT NULL DEFAULT now(),
+        last_used_at timestamptz,
+        revoked_at   timestamptz
+      );
+      CREATE INDEX api_keys_sub_idx ON api_keys (sub, created_at DESC);
+    `,
+  },
 ];
