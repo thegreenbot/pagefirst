@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authenticateBearer, unauthorizedHeaders } from "@/lib/api-auth";
+import { authenticateBearer, unauthorizedHeaders, type Credential } from "@/lib/api-auth";
 import { clientIp, recordAudit, requestIdFrom, type AuditEvent } from "@/lib/audit";
 import { checkRateLimit, withRateLimit } from "@/lib/guard";
 import { rateLimitHeaders } from "@/lib/ratelimit";
@@ -83,7 +83,7 @@ const IDEMPOTENT_BODY_MAX = 600 * 1024;
 /** Fields a handler adds to the audit event the wrapper records for its call. */
 export type AuditNote = Pick<AuditEvent, "fileId" | "baseRevisionId" | "resultRevisionId" | "ops" | "siteId" | "pagePath">;
 
-export type V1Handler = (ctx: ServiceContext, request: Request, note: AuditNote) => Promise<NextResponse | Response | object>;
+export type V1Handler = (ctx: ServiceContext, request: Request, note: AuditNote, credential: Credential) => Promise<NextResponse | Response | object>;
 
 /**
  * Runs a handler as an authenticated, rate-limited `/api/v1` call. ServiceError
@@ -149,7 +149,7 @@ export async function v1(
   let outcome: "ok" | "denied" | "error" = "ok";
   let failure: string | null = null;
   try {
-    const result = await handler(ctx, request, note);
+    const result = await handler(ctx, request, note, auth.credential);
     response = result instanceof Response ? (result as NextResponse) : NextResponse.json(result);
   } catch (error) {
     if (error instanceof ServiceError) {
