@@ -8,16 +8,17 @@ export const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 /**
  * Routes authenticated by a bearer token only, never a cookie, so a cross-site
  * request gains nothing: the theme registry's trusted-publishing upload (#64),
- * called from GitHub Actions with an OIDC token, and the versioned API, which
- * authenticates with an API key or OAuth token and ignores cookies (#36).
+ * called from GitHub Actions with an OIDC token, the versioned API, which
+ * authenticates with an API key or OAuth token and ignores cookies (#36), and
+ * the Stripe webhook, which is authenticated by its signature over the body (#47).
  */
-const TOKEN_ROUTES = [/^\/api\/registry\/versions$/, /^\/api\/v1\//, /^\/api\/oauth\/register$/];
+const TOKEN_ROUTES = [/^\/api\/registry\/versions$/, /^\/api\/v1\//, /^\/api\/oauth\/register$/, /^\/api\/billing\/webhook$/];
 
 /** Public OAuth endpoints that read no cookie and take form-encoded bodies. */
 const FORM_ROUTES = [/^\/api\/oauth\/(token|revoke)$/];
 
 /** Routes whose body, when there is one, must be JSON. */
-const JSON_ROUTES = [/^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/, /^\/api\/keys$/, ...TOKEN_ROUTES];
+const JSON_ROUTES = [/^\/api\/billing\/(checkout|portal)$/, /^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/, /^\/api\/keys$/, ...TOKEN_ROUTES];
 
 function configuredOrigin(): string | null {
   const value = process.env.APP_URL?.trim();
