@@ -169,6 +169,30 @@ describe("publish signed in to Google", () => {
     const body = await res.json();
     assert.equal(body.url, undefined);
     assert.ok(body.warning);
+    assert.doesNotMatch(body.warning, /approved accounts/, "the allow-listed author gets past the gate");
     assert.doesNotMatch(JSON.stringify(body), /fake-token/);
+  });
+});
+
+describe("public publish allow-list (#85 stopgap)", () => {
+  let app;
+  before(async () => {
+    app = await startApp({ google: true, env: { PUBLISH_ALLOWLIST: "someone-else@example.com" } });
+  });
+  after(async () => {
+    await app?.stop();
+  });
+
+  test("an account not on the list gets a preview and no public copy", async () => {
+    const res = await fetch(`${app.base}/api/pages/doc1/publish`, {
+      method: "POST",
+      headers: { cookie: "pf_access=fake-token", "content-type": "application/json", "sec-fetch-site": "same-origin" },
+      body: JSON.stringify({ public: true }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.url, undefined);
+    assert.equal(body.previewPath, "/published/doc1");
+    assert.match(body.warning, /approved accounts/);
   });
 });
