@@ -146,6 +146,21 @@ describe("Google Docs contract", { skip: configured ? false : "TEST_GOOGLE_* sec
         [paragraph.id, "p", "Edited paragraph, longer than before"],
       ],
     );
+
+    // A second commit on the same ids must work without re-adopting.
+    await batchUpdate(
+      token,
+      fileId,
+      buildCommitRequests(updated, [{ op: "replaceText", nodeId: paragraph.id, text: "Short" }]).requests,
+    );
+    const again = await fetchDocument(token, fileId);
+    assert.equal(bodyText(again), "Edited heading\nShort\n\n");
+    assert.deepEqual(
+      proseNodes(parseDocument(again, "contract"))
+        .slice(0, 2)
+        .map((node) => node.id),
+      [heading.id, paragraph.id],
+    );
   });
 
   test("rejects a stale revision the way commitLive does", async () => {
