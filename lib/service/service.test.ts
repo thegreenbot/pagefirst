@@ -144,3 +144,33 @@ test("publish refuses a stale revisionId", async () => {
   const live = ctx({ googleToken: "tok", google: fakeGoogle() });
   await assert.rejects(publish(live, "doc1", { revisionId: "older" }), (err: unknown) => err instanceof ServiceError && err.code === "conflict");
 });
+
+test("a site-folder allow-list lists only those folders and hides other pages", async () => {
+  let listedWith: readonly string[] | undefined;
+  const google = fakeGoogle({
+    listDocuments: async (_token, folders) => {
+      listedWith = folders;
+      return [];
+    },
+    parentsOf: async (_token, fileId) => (fileId === "inside" ? ["folderA"] : ["elsewhere"]),
+  });
+  const keyed = ctx({ googleToken: "tok", google, siteFolders: ["folderA"], scopes: only("pages:read", "pages:commit") });
+  await listPages(keyed);
+  assert.deepEqual(listedWith, ["folderA"]);
+  assert.ok(await getPage(keyed, "inside"));
+  // Outside the folder looks exactly like a missing page.
+  assert.equal(await getPage(keyed, "outside"), null);
+  const refused = await commit(keyed, "outside", "rev1", replace);
+  assert.equal(refused.ok, false);
+  if (!refused.ok) assert.equal(refused.code, "not_found");
+  assert.equal(google.writes.length, 0);
+  const allowed = await commit(keyed, "inside", "rev1", replace);
+  assert.equal(allowed.ok, true);
+});
+
+test("a site-folder allow-list fails closed without a folder lookup, and cannot create pages", async () => {
+  const keyed = ctx({ googleToken: "tok", google: fakeGoogle(), siteFolders: ["folderA"] });
+  await assert.rejects(getPage(keyed, "doc1"), (err: unknown) => err instanceof ServiceError && err.code === "forbidden");
+  await assert.rejects(createPage(keyed, "x"), (err: unknown) => err instanceof ServiceError && err.code === "forbidden");
+  await assert.rejects(publish(keyed, "doc1"), (err: unknown) => err instanceof ServiceError && err.code === "forbidden");
+});

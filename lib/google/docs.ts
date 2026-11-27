@@ -47,9 +47,18 @@ export async function createDocument(token: string, title: string): Promise<Docs
   return (await res.json()) as DocsDocument;
 }
 
-export async function listDocuments(token: string): Promise<{ id: string; name: string }[]> {
+const FOLDER_ID = /^[\w-]{10,128}$/;
+
+/** Docs the user can see. With `folderIds`, only Docs directly inside one of those folders. */
+export async function listDocuments(token: string, folderIds?: readonly string[]): Promise<{ id: string; name: string }[]> {
+  let q = "mimeType='application/vnd.google-apps.document'";
+  if (folderIds) {
+    const safe = folderIds.filter((id) => FOLDER_ID.test(id));
+    if (safe.length === 0) return [];
+    q += ` and (${safe.map((id) => `'${id}' in parents`).join(" or ")})`;
+  }
   const res = await authorized(
-    "https://www.googleapis.com/drive/v3/files?q=mimeType%3D%27application%2Fvnd.google-apps.document%27&fields=files(id%2Cname)&pageSize=30",
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id%2Cname)&pageSize=30`,
     token,
   );
   if (!res.ok) throw new Error(`Drive list failed (${res.status})`);
@@ -57,4 +66,15 @@ export async function listDocuments(token: string): Promise<{ id: string; name: 
   return (json.files ?? []).flatMap((file) =>
     file.id ? [{ id: file.id, name: file.name ?? "" }] : [],
   );
+}
+
+/** The folders a file sits directly in, for site-folder allow-lists. */
+export async function parentsOf(token: string, fileId: string): Promise<string[]> {
+  const res = await authorized(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=parents`,
+    token,
+  );
+  if (!res.ok) throw new Error(`Drive read failed (${res.status})`);
+  const json = (await res.json()) as { parents?: string[] };
+  return json.parents ?? [];
 }

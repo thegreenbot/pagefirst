@@ -12,7 +12,9 @@ export type Client = "ui" | "api" | "mcp";
 
 /** The Google calls the service makes, so tests and other callers can supply their own. */
 export type GoogleClient = {
-  listDocuments(token: string): Promise<{ id: string; name: string }[]>;
+  listDocuments(token: string, folderIds?: readonly string[]): Promise<{ id: string; name: string }[]>;
+  /** The folders a file sits directly in. Needed only to enforce a site-folder allow-list. */
+  parentsOf?(token: string, fileId: string): Promise<string[]>;
   fetchDocument(token: string, fileId: string): Promise<import("@/lib/page/types").DocsDocument>;
   createDocument(token: string, title: string): Promise<import("@/lib/page/types").DocsDocument>;
   batchUpdate(token: string, fileId: string, requests: object[]): Promise<unknown>;
@@ -32,6 +34,11 @@ export type ServiceContext = {
   idempotencyKey?: string;
   /** Granted scopes. Omitted means a full browser session. */
   scopes?: ReadonlySet<Scope>;
+  /**
+   * Drive folder ids the credential may touch (API keys only). Omitted means
+   * any Doc the user can reach. Only Docs directly inside a listed folder match.
+   */
+  siteFolders?: readonly string[];
   /** Replaces the real Google client, for tests. */
   google?: GoogleClient;
 };

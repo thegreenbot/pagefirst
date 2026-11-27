@@ -109,3 +109,22 @@ describe("bearer-token routes", () => {
   });
 });
 
+
+describe("API key routes (#36)", () => {
+  const post = (path: string, headers: Record<string, string>) =>
+    new Request(`https://app.example${path}`, { method: "POST", headers, body: "{}" });
+
+  test("/api/v1 reads no cookie, so it needs no Origin but must be JSON", () => {
+    assert.deepEqual(checkMutation(post("/api/v1/pages", { "content-type": "application/json" }), "/api/v1/pages"), { ok: true });
+    assert.equal(checkMutation(post("/api/v1/pages", { "content-type": "text/plain" }), "/api/v1/pages").ok, false);
+  });
+
+  test("creating a key is cookie-authenticated, so a cross-site post is refused", () => {
+    const verdict = checkMutation(post("/api/keys", { "content-type": "application/json", "sec-fetch-site": "cross-site" }), "/api/keys");
+    assert.equal(verdict.ok, false);
+    assert.deepEqual(
+      checkMutation(post("/api/keys", { "content-type": "application/json", "sec-fetch-site": "same-origin" }), "/api/keys"),
+      { ok: true },
+    );
+  });
+});

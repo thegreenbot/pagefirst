@@ -62,6 +62,28 @@ export function googleFor(ctx: ServiceContext): GoogleClient {
   return ctx.google ?? realGoogle;
 }
 
+/**
+ * Enforces a key's site-folder allow-list. Fails closed: with an allow-list
+ * and no way to look up a file's folder, the call is refused. Sample pages
+ * are not in any folder, so a restricted credential cannot reach them.
+ */
+async function requireFolder(ctx: ServiceContext, fileId: string): Promise<void> {
+  if (!ctx.siteFolders) return;
+  const token = ctx.googleToken;
+  const parentsOf = googleFor(ctx).parentsOf;
+  if (!token || !parentsOf) throw new ServiceError("forbidden", "This credential is limited to certain site folders.");
+  let parents: string[];
+  try {
+    parents = await parentsOf(token, fileId);
+  } catch (err) {
+    throw toServiceError(err, "Could not check the page's folder.", (text) => redact(text, token));
+  }
+  if (!parents.some((id) => ctx.siteFolders!.includes(id))) {
+    // Same answer as a missing page, so a key cannot probe what exists outside its folders.
+    throw new ServiceError("not_found", "Page not found");
+  }
+}
+
 function liveToken(ctx: ServiceContext): string {
   if (!ctx.googleToken) throw new ServiceError("unauthenticated", "Not signed in");
   return ctx.googleToken;
@@ -75,7 +97,7 @@ export async function listPages(ctx: ServiceContext): Promise<Library> {
   }
   const token = liveToken(ctx);
   try {
-    const files = await googleFor(ctx).listDocuments(token);
+    const files = await googleFor(ctx).listDocuments(token, ctx.siteFolders);
     return {
       sample: false,
       pages: files.map((file) => ({ fileId: file.id, path: slugify(file.name), title: file.name, revisionId: "" })),
@@ -96,6 +118,7 @@ export async function getPage(ctx: ServiceContext, fileId: string): Promise<Page
   }
   const token = liveToken(ctx);
   try {
+    await requireFolder(ctx, fileId);
     const doc = await googleFor(ctx).fetchDocument(token, fileId);
     return { page: parseDocument(doc, slugify(doc.title ?? "")), sample: false };
   } catch (err) {
@@ -107,6 +130,8 @@ export async function getPage(ctx: ServiceContext, fileId: string): Promise<Page
 
 export async function createPage(ctx: ServiceContext, title: string): Promise<PagePayload> {
   requireScope(ctx, "pages:commit");
+  // A new Doc lands in the user's Drive root, outside any folder this credential may use.
+  if (ctx.siteFolders) throw new ServiceError("forbidden", "This credential is limited to certain site folders and cannot create pages.");
   if (isSample(ctx)) {
     ensureSample();
     const page = blankPage(title);
@@ -177,6 +202,13 @@ export async function commit(ctx: ServiceContext, fileId: string, baseRevisionId
   if (isSample(ctx)) return commitSample(fileId, baseRevisionId, ops);
   const token = ctx.googleToken;
   if (!token) return fail("unauthenticated", "Not signed in");
+  // Outside the try: a folder refusal keeps its own code instead of becoming a Google 502.
+  try {
+    await requireFolder(ctx, fileId);
+  } catch (err) {
+    if (err instanceof ServiceError) return fail(err.code, err.message);
+    throw err;
+  }
   try {
     return await commitLive(ctx, token, fileId, baseRevisionId, ops);
   } catch (err) {
