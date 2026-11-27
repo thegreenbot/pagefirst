@@ -31,9 +31,9 @@ describe("Google OAuth routes", () => {
       location.searchParams.get("redirect_uri"),
       `${app.base}/api/auth/callback`,
     );
-    const scopes = location.searchParams.get("scope").split(" ");
-    assert.ok(scopes.includes("https://www.googleapis.com/auth/drive.file"));
-    assert.ok(!scopes.includes("https://www.googleapis.com/auth/drive"), "never asks for full Drive");
+    const scopes = new Set(location.searchParams.get("scope").split(" "));
+    assert.ok(scopes.has("https://www.googleapis.com/auth/drive.file"));
+    assert.ok(!scopes.has("https://www.googleapis.com/auth/drive"), "never asks for full Drive");
   });
 
   test("callback with matching state and a good code sets the session and clears PKCE", async () => {
