@@ -91,3 +91,21 @@ describe("route helpers", () => {
     assert.equal(isJsonContentType(null), false);
   });
 });
+
+describe("bearer-token routes", () => {
+  const upload = (headers: Record<string, string>) =>
+    new Request("https://app.example/api/registry/versions", { method: "POST", headers, body: "{}" });
+
+  test("the registry upload needs no Origin, since it reads no cookie", () => {
+    assert.deepEqual(checkMutation(upload({ "content-type": "application/json" }), "/api/registry/versions"), { ok: true });
+  });
+
+  test("it must still be JSON", () => {
+    assert.equal(checkMutation(upload({ "content-type": "text/plain" }), "/api/registry/versions").ok, false);
+  });
+
+  test("other routes still need a same-origin request", () => {
+    assert.equal(checkMutation(upload({ "content-type": "application/json" }), "/api/registry/versions/x").ok, false);
+  });
+});
+

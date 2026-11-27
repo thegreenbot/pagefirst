@@ -141,7 +141,11 @@ A theme version is a deterministic `.tgz` of its directory (sorted paths, zero t
 - **Verifying.** A site's lock stores the version and integrity. Every load of a registry version from storage recomputes the archive hash, checks the countersignature against `THEME_REGISTRY_PUBLIC_KEYS`, and checks that the manifest inside names the same theme and version. Failing any of these refuses to render. Only verified packages are cached in memory.
 - **Fallback.** A theme the registry does not list yet falls back to the copy bundled under `themes/`, locked by a `sha256-` snapshot hash as before. Locks made before the registry keep working the same way.
 - **First party only.** v1 ships two themes, `@pagefirst/default` and `@pagefirst/editorial`. The editor lists every available theme and switches with a reload, since the new package is verified on the server.
-- **Publishing** from a tagged CI run with GitHub OIDC trusted publishing and a Sigstore attestation is the second part of #64.
+- **Publishing.** Versions come only from `theme-publish.yml` on a `theme-<dir>-v<version>` tag. There is no upload secret.
+  - The workflow sends its GitHub Actions OIDC token (audience `pagefirst-theme-registry`). The registry verifies it against GitHub's published keys and requires the trusted repository, a `push` of exactly that version's tag, and that workflow file.
+  - The workflow also makes a Sigstore build-provenance attestation for the archive (keyless, through the same OIDC identity) and verifies it in full with `gh attestation verify` before uploading.
+  - The registry then checks the attestation's DSSE signature against its certificate, that the certificate was issued to the publish workflow at that tag, and that the signed statement names the archive's SHA-256. It stores the bundle with the version so anyone can re-verify it.
+  - The certificate's chain to Sigstore's root and the transparency-log entry are checked in CI, not again by the registry. Doing that server-side would need Sigstore's trust root at runtime. The OIDC token is what authenticates the upload.
 
 ## Consequences
 
