@@ -4,7 +4,7 @@ Pagefirst signs users in with Google and holds an OAuth grant that can create an
 
 ## Supported versions
 
-Pagefirst is pre-1.0. Only the latest release on `main` (and the deployed app at `https://page-first.apps.grok.bot`) receives security fixes.
+Pagefirst is pre-1.0. Only the latest release on `main` (and the deployed production app) receives security fixes.
 
 | Version | Supported |
 | --- | --- |
