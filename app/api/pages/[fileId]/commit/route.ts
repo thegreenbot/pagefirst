@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
+import { callerKey, checkRateLimit, requireGoogleWriter, tooManyRequests } from "@/lib/guard";
 import { isSafeId, type CommitResult, type Op } from "@/lib/page/types";
 import { commitPage } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+
+/** Commits per caller per minute: generous for an author typing then committing. */
+const COMMIT_LIMIT = 30;
 
 export async function POST(
   request: Request,
@@ -11,6 +15,16 @@ export async function POST(
   const { fileId } = await context.params;
   if (!isSafeId(fileId)) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  }
+
+  // Middleware has already refused cross-site and non-JSON requests.
+  const writer = await requireGoogleWriter();
+  if (!writer.ok) {
+    return NextResponse.json({ error: writer.error }, { status: 401 });
+  }
+  const limit = checkRateLimit(`commit:${callerKey(writer.token, request)}`, COMMIT_LIMIT);
+  if (!limit.ok) {
+    return tooManyRequests("Too many saves. Wait a moment and try again.", limit.retryAfterSeconds);
   }
 
   let body: unknown;

@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { callerKey, sameOrigin, withinRateLimit } from "./guard";
+import { callerKey, checkRateLimit, sameOrigin, tooManyRequests, withinRateLimit } from "./guard";
 
 function request(headers: Record<string, string>, url = "https://app.example/api/x"): Request {
   return new Request(url, { method: "POST", headers });
@@ -62,5 +62,22 @@ describe("withinRateLimit", () => {
     assert.equal(withinRateLimit(key, 1), false);
     t.mock.timers.tick(60_001);
     assert.equal(withinRateLimit(key, 1), true);
+  });
+});
+
+describe("checkRateLimit", () => {
+  test("says how many seconds until the oldest call leaves the window", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 2_000_000 });
+    const key = `test:${Math.random()}`;
+    assert.deepEqual(checkRateLimit(key, 1), { ok: true });
+    t.mock.timers.tick(15_000);
+    assert.deepEqual(checkRateLimit(key, 1), { ok: false, retryAfterSeconds: 45 });
+  });
+
+  test("tooManyRequests sets status 429 and Retry-After", async () => {
+    const res = tooManyRequests("Slow down.", 12);
+    assert.equal(res.status, 429);
+    assert.equal(res.headers.get("retry-after"), "12");
+    assert.deepEqual(await res.json(), { error: "Slow down." });
   });
 });

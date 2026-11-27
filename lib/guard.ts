@@ -1,6 +1,9 @@
+import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { googleConfigured } from "@/lib/google/config";
 import { getAccessToken } from "@/lib/session";
+
+export { sameOrigin } from "@/lib/http/csrf";
 
 const WINDOW_MS = 60_000;
 const buckets = new Map<string, number[]>();
@@ -15,18 +18,6 @@ export async function requireGoogleWriter(): Promise<
   return { ok: true, token };
 }
 
-export function sameOrigin(request: Request): boolean {
-  const site = request.headers.get("sec-fetch-site");
-  if (site === "same-origin" || site === "none") return true;
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
-  try {
-    return new URL(origin).host === new URL(request.url).host;
-  } catch {
-    return false;
-  }
-}
-
 export function callerKey(token: string | null, request: Request): string {
   if (token) return createHash("sha256").update(token).digest("hex").slice(0, 24);
   const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "";
@@ -34,13 +25,16 @@ export function callerKey(token: string | null, request: Request): string {
   return `ip:${ip}`;
 }
 
-/** Returns false when this caller has already hit `limit` calls in the last minute. */
-export function withinRateLimit(key: string, limit: number): boolean {
+export type RateLimitVerdict = { ok: true } | { ok: false; retryAfterSeconds: number };
+
+/** Allows `limit` calls per key in any rolling minute. When refused, says how long until a slot frees. */
+export function checkRateLimit(key: string, limit: number): RateLimitVerdict {
   const now = Date.now();
   const recent = (buckets.get(key) ?? []).filter((stamp) => now - stamp < WINDOW_MS);
   if (recent.length >= limit) {
     buckets.set(key, recent);
-    return false;
+    const oldest = recent[0] ?? now;
+    return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil((oldest + WINDOW_MS - now) / 1000)) };
   }
   recent.push(now);
   buckets.set(key, recent);
@@ -48,5 +42,18 @@ export function withinRateLimit(key: string, limit: number): boolean {
     const oldest = buckets.keys().next().value;
     if (oldest) buckets.delete(oldest);
   }
-  return true;
+  return { ok: true };
+}
+
+/** Returns false when this caller has already hit `limit` calls in the last minute. */
+export function withinRateLimit(key: string, limit: number): boolean {
+  return checkRateLimit(key, limit).ok;
+}
+
+/** A 429 that tells the client when to retry. */
+export function tooManyRequests(message: string, retryAfterSeconds: number): NextResponse<{ error: string }> {
+  return NextResponse.json(
+    { error: message },
+    { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+  );
 }

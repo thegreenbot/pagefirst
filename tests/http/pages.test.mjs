@@ -5,7 +5,7 @@ import { startApp } from "./server.mjs";
 async function postJson(base, path, body, headers = {}) {
   return fetch(`${base}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...headers },
+    headers: { "content-type": "application/json", "sec-fetch-site": "same-origin", ...headers },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }
@@ -85,6 +85,86 @@ describe("page routes in sample mode", () => {
     assert.equal(body.ok, true);
     assert.notEqual(body.page.revisionId, current.page.revisionId);
     assert.equal(body.page.metadata.description, "Changed in a test.");
+  });
+
+  test("commit is rate-limited to 30 a minute per caller, with Retry-After", async () => {
+    const caller = { "x-forwarded-for": "198.51.100.30" };
+    const statuses = [];
+    let retryAfter = null;
+    for (let i = 0; i < 31; i += 1) {
+      const res = await postJson(app.base, "/api/pages/about/commit", { baseRevisionId: "r0", ops: [] }, caller);
+      statuses.push(res.status);
+      if (res.status === 429) retryAfter = res.headers.get("retry-after");
+    }
+    assert.ok(statuses.slice(0, 30).every((status) => status === 409), statuses.join(","));
+    assert.equal(statuses[30], 429);
+    assert.ok(Number(retryAfter) >= 1 && Number(retryAfter) <= 60, `Retry-After ${retryAfter}`);
+  });
+});
+
+describe("commit is refused from other sites", () => {
+  let app;
+  before(async () => {
+    app = await startApp({ google: true });
+  });
+  after(async () => {
+    await app?.stop();
+  });
+
+  const signedIn = "pf_access=fake-token";
+  const body = JSON.stringify({ baseRevisionId: "rev-2", ops: [] });
+
+  test("a cross-site text/plain POST is a 403 and never reaches Google", async () => {
+    const res = await fetch(`${app.base}/api/pages/boom/commit`, {
+      method: "POST",
+      headers: {
+        cookie: signedIn,
+        "content-type": "text/plain",
+        "sec-fetch-site": "cross-site",
+        origin: "https://evil.example",
+      },
+      body,
+    });
+    // "boom" makes the fake Docs API fail with 502, so a 403 proves Google was never called.
+    assert.equal(res.status, 403);
+  });
+
+  test("a POST with no Origin or Sec-Fetch-Site is a 403", async () => {
+    const res = await fetch(`${app.base}/api/pages/boom/commit`, {
+      method: "POST",
+      headers: { cookie: signedIn, "content-type": "application/json" },
+      body,
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test("a same-origin text/plain POST is a 415", async () => {
+    const res = await fetch(`${app.base}/api/pages/boom/commit`, {
+      method: "POST",
+      headers: { cookie: signedIn, "content-type": "text/plain", origin: app.base },
+      body,
+    });
+    assert.equal(res.status, 415);
+  });
+
+  test("a same-origin JSON commit still works", async () => {
+    const res = await postJson(app.base, "/api/pages/doc1/commit", JSON.parse(body), { cookie: signedIn, origin: app.base });
+    assert.equal(res.status, 200);
+  });
+
+  test("a commit without a session is a 401", async () => {
+    const res = await postJson(app.base, "/api/pages/doc1/commit", JSON.parse(body));
+    assert.equal(res.status, 401);
+  });
+
+  test("logout from another site is a 403 and keeps the session", async () => {
+    const res = await fetch(`${app.base}/api/auth/logout`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { cookie: signedIn, "sec-fetch-site": "cross-site", origin: "https://evil.example" },
+    });
+    assert.equal(res.status, 403);
+    assert.equal(res.headers.getSetCookie().length, 0);
   });
 });
 

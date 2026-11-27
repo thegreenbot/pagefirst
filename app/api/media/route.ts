@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { callerKey, requireGoogleWriter, sameOrigin, withinRateLimit } from "@/lib/guard";
+import { callerKey, checkRateLimit, requireGoogleWriter, sameOrigin, tooManyRequests } from "@/lib/guard";
 import { googleConfigured } from "@/lib/google/config";
 import { saveMedia } from "@/lib/media";
 
@@ -20,8 +20,9 @@ export async function POST(request: Request) {
   if (!googleConfigured() && !sameOrigin(request)) {
     return NextResponse.json({ error: "Sign in with Google to do this." }, { status: 401 });
   }
-  if (!withinRateLimit(`media:${callerKey(writer.token, request)}`, 8)) {
-    return NextResponse.json({ error: "Too many uploads. Wait a minute." }, { status: 429 });
+  const limit = checkRateLimit(`media:${callerKey(writer.token, request)}`, 8);
+  if (!limit.ok) {
+    return tooManyRequests("Too many uploads. Wait a minute.", limit.retryAfterSeconds);
   }
 
   const form = await request.formData();

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { callerKey, requireGoogleWriter, sameOrigin, withinRateLimit } from "@/lib/guard";
+import { callerKey, checkRateLimit, requireGoogleWriter, sameOrigin, tooManyRequests } from "@/lib/guard";
 import { googleConfigured } from "@/lib/google/config";
 import { isSafeId, type PublishResult } from "@/lib/page/types";
 import { renderPublishHtml } from "@/lib/page/render";
@@ -27,8 +27,9 @@ export async function POST(
   if (!googleConfigured() && !sameOrigin(request)) {
     return NextResponse.json({ error: "Sign in with Google to publish." }, { status: 401 });
   }
-  if (!withinRateLimit(`publish:${callerKey(writer.token, request)}`, 6)) {
-    return NextResponse.json({ error: "Too many publish requests. Wait a minute." }, { status: 429 });
+  const limit = checkRateLimit(`publish:${callerKey(writer.token, request)}`, 6);
+  if (!limit.ok) {
+    return tooManyRequests("Too many publish requests. Wait a minute.", limit.retryAfterSeconds);
   }
 
   let wantsPublic = false;
