@@ -26,7 +26,7 @@ describe("security headers", () => {
       assert.doesNotMatch(policy, /unsafe-eval/);
       const nonce = nonceOf(res);
       const html = await res.text();
-      const scripts = [...html.matchAll(/<script\b[^>]*>/g)].map((m) => m[0]);
+      const scripts = [...html.matchAll(/<script\b[^>]*>/gi)].map((m) => m[0]);
       assert.ok(scripts.length > 0, "page has scripts");
       for (const script of scripts) assert.ok(script.includes(`nonce="${nonce}"`), script);
     });
