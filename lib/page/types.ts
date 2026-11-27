@@ -93,6 +93,8 @@ export type PageSummary = {
   path: string;
   title: string;
   revisionId: string;
+  /** Drive's last-modified time, known only for live Docs. */
+  modifiedTime?: string;
 };
 
 export type Library = {

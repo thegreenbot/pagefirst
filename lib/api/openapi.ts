@@ -24,6 +24,32 @@ export const openapi = {
     "/openapi.json": {
       get: { operationId: "getOpenApi", summary: "This document", security: [], responses: { "200": { description: "OK" } } },
     },
+    "/content-audit": {
+      get: {
+        operationId: "getContentAudit",
+        summary: "Report stale, expired, thin and near-duplicate pages",
+        parameters: [
+          { name: "staleDays", in: "query", schema: { type: "integer", minimum: 1, maximum: 3650, default: 365 } },
+          { name: "thinWords", in: "query", schema: { type: "integer", minimum: 1, maximum: 5000, default: 120 } },
+          { name: "duplicateThreshold", in: "query", schema: { type: "number", minimum: 0.3, maximum: 1, default: 0.8 } },
+        ],
+        responses: { "200": { description: "The report; truncated is true when more pages exist than were checked" }, default: error },
+      },
+    },
+    "/content-audit/decisions": {
+      get: {
+        operationId: "listAuditDecisions",
+        summary: "A page's audit decision history, newest first",
+        parameters: [{ name: "fileId", in: "query", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "OK" }, default: error },
+      },
+      post: {
+        operationId: "recordAuditDecision",
+        summary: "Record what was decided about a flagged page",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["fileId", "finding", "decision"], properties: { fileId: { type: "string" }, finding: { type: "string", enum: ["stale", "expired", "thin", "duplicate"] }, decision: { type: "string", enum: ["keep", "update", "merge", "rewrite", "noindex", "remove"] }, note: { type: "string", maxLength: 1000 } } } } } },
+        responses: { "201": { description: "Recorded" }, default: error },
+      },
+    },
     "/audit": {
       get: {
         operationId: "listAudit",
