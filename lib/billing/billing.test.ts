@@ -28,7 +28,7 @@ const sub = (status: string, price = "price_pro_m", quantity = 1, orgId?: string
   id: "sub_1",
   customer: "cus_1",
   status,
-  metadata: orgId ? { org_id: orgId } : {},
+  metadata: (orgId ? { org_id: orgId } : {}) as Record<string, string>,
   current_period_end: 1_900_000_000,
   items: { data: [{ id: "si_1", quantity, price: { id: price } }] },
 });
