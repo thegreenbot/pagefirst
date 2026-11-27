@@ -1,0 +1,13 @@
+# The Worker that serves every published site from one R2 bucket (#94).
+# Fill in the bucket name and routes in Cloudflare; no secrets live here.
+name = "pagefirst-sites"
+main = "index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = false
+
+[[r2_buckets]]
+binding = "SITES"
+bucket_name = "pagefirst-sites"
+
+# Route every site subdomain of the publish domain to this Worker, e.g.:
+# routes = [{ pattern = "*.example.com/*", zone_name = "example.com" }]
