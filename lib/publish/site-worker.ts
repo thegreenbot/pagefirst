@@ -37,7 +37,7 @@ export const DEFAULT_SITE_CSP = [
   "form-action 'none'",
 ].join("; ");
 
-const SITE_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const SITE_ID = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 const HOSTNAME = /^[a-z0-9.-]{1,253}$/;
 const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 

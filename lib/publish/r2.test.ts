@@ -30,6 +30,7 @@ describe("R2 publishing", () => {
 
   test("keys stay inside the site's folder", () => {
     assert.equal(siteObjectKey("s1", "index"), "sites/s1/index.html");
+    assert.equal(siteObjectKey("site_ab12", "index"), "sites/site_ab12/index.html", "ids from the sites table");
     assert.equal(siteObjectKey("s1", ""), "sites/s1/index.html");
     assert.equal(siteObjectKey("s1", "blog/post"), "sites/s1/blog/post.html");
     assert.throws(() => siteObjectKey("../s2", "x"), /site id/);

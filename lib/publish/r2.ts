@@ -7,7 +7,7 @@ import { candidateKeys } from "@/lib/publish/site-worker";
  */
 
 const API = "https://api.cloudflare.com/client/v4";
-const SITE_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const SITE_ID = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 const HOSTNAME = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
 type R2Config = { accountId: string; bucket: string; token: string };
