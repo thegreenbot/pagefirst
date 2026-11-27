@@ -30,7 +30,7 @@ export function appContentSecurityPolicy(nonce: string, { dev = false } = {}): s
     `script-src ${script.join(" ")}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
-    "font-src 'self'",
+    "font-src 'self' data:",
     `connect-src 'self'${dev ? " ws:" : ""}`,
     "object-src 'none'",
     "base-uri 'none'",

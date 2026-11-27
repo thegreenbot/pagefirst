@@ -16,6 +16,8 @@ export type ThemePackage = {
    */
   blockJs?: Record<string, string>;
   tokens: Record<string, unknown>;
+  /** Binary files the manifest names (fonts, #62), base64 encoded so a package snapshot stays JSON. */
+  files?: Record<string, string>;
 };
 
 const MAX_FILE_BYTES = 256 * 1024;
@@ -78,6 +80,16 @@ export function loadThemeFromDir(root: string): ThemePackage {
     if (js !== null) blockJs[name] = js.trim();
   }
 
+  const files: Record<string, string> = {};
+  for (const font of manifest.fonts ?? []) {
+    for (const file of font.files) {
+      // parseManifest allows only assets/fonts/<name>.woff2, so this stays inside the package.
+      const bytes = readFileSync(path.join(root, file.src));
+      if (bytes.length > MAX_FILE_BYTES) throw new Error(`${file.src} is larger than ${MAX_FILE_BYTES} bytes`);
+      files[file.src] = bytes.toString("base64");
+    }
+  }
+
   const base = path.join(root, "styles", "base.css");
   const tokensFile = path.join(root, "styles", "tokens.json");
   return {
@@ -86,6 +98,7 @@ export function loadThemeFromDir(root: string): ThemePackage {
     baseCss: (readOptional(base) ?? "").trim(),
     blockCss,
     blockJs,
+    files,
     tokens: JSON.parse(readOptional(tokensFile) ?? "{}") as Record<string, unknown>,
   };
 }

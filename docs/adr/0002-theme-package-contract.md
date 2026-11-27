@@ -118,9 +118,19 @@ Images are prepared at publish time (Will's decision: simpler over faster bulk p
 A page and its files go to the site's folder in R2 (#94). The app records the hash of every file it has written (`site_files`), and anything unchanged is skipped, so republishing an unchanged page uploads nothing. Assets go up before the page. The site Worker sends:
 
 - the page's stored CSP, where `script-src` is `'none'` unless the page has islands, and `connect-src` and `frame-src` list only the https origins the theme declares in `permissions`;
-- a `Link` preload for the LCP image (and, with #62, the above-the-fold font), stored with the page so Cloudflare can send 103 Early Hints;
+- a `Link` preload for the LCP image and the preloaded font (#62), stored with the page so Cloudflare can send 103 Early Hints;
 - a `Speculation-Rules` header pointing at `/_pf/speculation-rules.json`, which prefetches same-site links with moderate eagerness;
 - `immutable` caching for `assets/pf/` and `assets/img/`, 60 seconds for pages.
+
+### 12. Fonts are self-hosted, subset and metric-matched (#62)
+
+A theme declares its fonts in `theme.json` `fonts`: a family, weight and style, WOFF2 files under `assets/fonts/` with their subset and `unicode-range`, and a local fallback with `size-adjust` and ascent, descent and line-gap overrides. Every value lands in CSS, so the manifest check accepts only strict shapes. A font ships only when a resolved font token names its family, so a site that picks another heading font sends none of the theme's files.
+
+- Published pages get one `@font-face` per subset, named by content hash under `assets/pf/`, so browsers fetch only the subsets the text needs. The editor inlines them as `data:` URLs instead (the app and preview CSPs allow `font-src data:`).
+- Each family also gets a `"<Family> Fallback"` face over local fonts with the theme's metric overrides. Tokens list it right after the web font.
+- At most one font may set `preload`. Its latin file is preloaded in the head and as a `Link` header for Early Hints.
+- Faces use `font-display: optional`. With the preload the font is normally ready for first paint; when it is not, the page keeps the matched fallback rather than re-laying out. With `swap`, Lighthouse measured a 100 ms main-thread task on swap and broke the TBT budget.
+- The default theme ships Source Serif 4 600 (OFL, `assets/fonts/OFL.txt`) for headings, latin and latin-ext, about 40 KB in all, with Georgia as the matched fallback.
 
 ## Consequences
 

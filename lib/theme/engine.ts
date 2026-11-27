@@ -4,6 +4,7 @@ import { CRITICAL_CSS_BUDGET_BYTES, minifyCss, pruneUnusedOptions } from "./css"
 import { ISLAND_CSS, ISLAND_LOADER, JS_BUDGET_BYTES } from "./islands";
 import type { BlockLoad } from "./manifest";
 import type { ThemePackage } from "./package";
+import { fontLinkHeader, planFonts } from "./fonts";
 import { resolveTokens, tokensCss } from "./tokens";
 
 /**
@@ -64,8 +65,11 @@ function imagePreload(rendition: ImageRendition): string {
 /** Images fill their container's width at most; this keeps phones off the large files. */
 const IMAGE_SIZES = "(min-width: 1440px) 1440px, 100vw";
 
-/** A file the page references, to be served or uploaded next to it. */
-export type RenderAsset = { path: string; contentType: string; body: string };
+/** A text file the engine writes: deferred CSS (#59) and island modules (#60). */
+type TextAsset = { path: string; contentType: string; body: string };
+
+/** A file the page references, to be served or uploaded next to it: text, or a font (#62). */
+export type RenderAsset = { path: string; contentType: string; body: string | Uint8Array };
 
 /** A file published next to a page: text assets from the engine, binary image renditions (#61). */
 export type PublishAsset = { path: string; contentType: string; body: string | Uint8Array };
@@ -133,7 +137,7 @@ type RenderState = {
   /** The block whose template is rendering, for {% island %}. */
   block: BlockView | null;
   /** Module asset per block name that may mount as an island on this page. */
-  modules: Map<string, { asset: RenderAsset; load: BlockLoad }>;
+  modules: Map<string, { asset: TextAsset; load: BlockLoad }>;
   /** Blocks that mounted an island, with whether one is in the first section. */
   islands: Map<string, { firstSection: boolean }>;
 };
@@ -379,7 +383,7 @@ function planCss(
   firstSection: Set<string>,
   optimizer: RenderOptions["optimizer"],
   tokens: string,
-): { critical: string; deferred: RenderAsset | null } {
+): { critical: string; deferred: TextAsset | null } {
   const unused: Record<string, string[]> = {};
   for (const name of usedBlocks) {
     const declared = theme.manifest.blocks[name]?.options ?? [];
@@ -530,8 +534,9 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
   }
   const hasIslands = islandAssets.length > 0;
 
+  const fonts = planFonts(theme, resolvedTokens, mode, optimizer?.hash, warnings);
   const css = planCss(theme, usedBlocks, usedOptions, firstSectionBlocks, optimizer, tokenStyle);
-  const criticalCss = hasIslands ? ISLAND_CSS + css.critical : css.critical;
+  const criticalCss = fonts.css + (hasIslands ? ISLAND_CSS : "") + css.critical;
   const csp = options.csp
     ? options.csp([tokenStyle, criticalCss], {
         selfStyles: !!css.deferred,
@@ -552,12 +557,14 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
     .filter(([, island]) => island.firstSection)
     .map(([name]) => `\n<link rel="modulepreload" href="/${renderState.modules.get(name)!.asset.path}">`)
     .join("");
+  const fontPreloads = fonts.preloads.map((href) => `\n<link rel="preload" href="${href}" as="font" type="font/woff2" crossorigin>`).join("");
+  linkPreloads.push(...fonts.preloads.map(fontLinkHeader));
   renderState.head = `<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">${cspMeta}
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${escapeHtml(title)}</title>${description}
 <style data-pf-tokens>${tokenStyle}</style>
-<style>${criticalCss}</style>${preloads}`;
+<style>${criticalCss}</style>${fontPreloads}${preloads}`;
   const foot = [
     css.deferred ? `<link rel="stylesheet" href="/${css.deferred.path}">` : "",
     hasIslands ? `<script>${ISLAND_LOADER}</script>` : "",
@@ -574,7 +581,7 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
     out = at === -1 ? `${out}${foot}` : `${out.slice(0, at)}${foot}\n${out.slice(at)}`;
   }
   if (out.length > LIMITS.outputBytes) throw new Error(`${manifest.name}: page output exceeds ${LIMITS.outputBytes} bytes`);
-  const assets = [...(css.deferred ? [css.deferred] : []), ...islandAssets];
+  const assets: RenderAsset[] = [...(css.deferred ? [css.deferred] : []), ...islandAssets, ...fonts.assets];
   return { html: out, csp, warnings, assets, preloads: linkPreloads };
 }
 
