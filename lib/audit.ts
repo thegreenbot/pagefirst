@@ -19,6 +19,7 @@ export type AuditEventName =
   | "page.publish"
   | "page.presentation"
   | "site.theme.update"
+  | "registry.publish"
   | "media.upload"
   | "drive.temp_share.created"
   | "drive.temp_share.removed"

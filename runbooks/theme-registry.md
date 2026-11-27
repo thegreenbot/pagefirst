@@ -26,6 +26,28 @@ Without `THEME_REGISTRY_PUBLIC_KEYS`, no registry version verifies, so sites tha
 3. Switch `THEME_REGISTRY_SIGNING_KEY` to the new private key.
 4. Versions signed with the old key keep verifying while its public key stays listed. Remove it once nothing locks to those versions, or republish them under new version numbers.
 
+## Publishing a version
+
+Versions come only from `.github/workflows/theme-publish.yml`, run by pushing a release tag:
+
+1. Bump `version` in `themes/<dir>/theme.json` and merge it.
+2. Tag the merged commit `theme-<dir>-v<version>`, e.g. `git tag theme-editorial-v1.0.1 && git push origin theme-editorial-v1.0.1`.
+3. The workflow then:
+   1. runs the byte and Lighthouse budgets for that theme;
+   2. packs the archive, refusing if `theme.json` disagrees with the tag;
+   3. makes a Sigstore build-provenance attestation and verifies it with `gh attestation verify`;
+   4. uploads the archive, scores and attestation with its GitHub OIDC token.
+4. The registry (`POST /api/registry/versions`) checks:
+   - the token's signature, issuer, audience (`pagefirst-theme-registry`), repository, tag and workflow file;
+   - that the attestation was signed by this workflow for this exact archive.
+   It then re-runs the byte budgets, countersigns, and stores the version. A version number can be used only once.
+
+One-time setup:
+
+- In GitHub, under **Settings, Environments**, create `theme-registry`. Add the variable `THEME_REGISTRY_URL`, the production app's URL, e.g. `https://app.example.com`. Adding required reviewers there makes each publish wait for an approval.
+- On the production deployment, set `THEME_REGISTRY_SIGNING_KEY`. Only a deployment with that key accepts uploads; others answer 503.
+- `THEME_REGISTRY_TRUSTED_REPOSITORY` defaults to `thegreenbot/pagefirst`; change it only if the repository moves.
+
 ## Yanking a version or flagging an advisory
 
 A yanked version is never chosen for a new lock. Sites already locked to it keep rendering it until they change their theme or range.
