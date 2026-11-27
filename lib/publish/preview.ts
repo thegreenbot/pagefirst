@@ -48,3 +48,31 @@ export async function readPreview(fileId: string): Promise<Preview | null> {
   }
   return previews.get(fileId) ?? null;
 }
+
+/** Content-addressed files that previews reference, e.g. deferred CSS (#59). */
+export type PreviewAsset = { path: string; contentType: string; body: string };
+
+const assetHolder = globalThis as typeof globalThis & {
+  __pageFirstPreviewAssets?: Map<string, PreviewAsset>;
+};
+const assets: Map<string, PreviewAsset> = assetHolder.__pageFirstPreviewAssets ?? new Map<string, PreviewAsset>();
+assetHolder.__pageFirstPreviewAssets = assets;
+
+const MAX_ASSETS = 200;
+const MAX_ASSET_BYTES = 200_000;
+
+export function savePreviewAssets(list: PreviewAsset[]): void {
+  for (const asset of list) {
+    if (asset.body.length > MAX_ASSET_BYTES) continue;
+    assets.delete(asset.path);
+    if (assets.size >= MAX_ASSETS) {
+      const oldest = assets.keys().next().value;
+      if (oldest) assets.delete(oldest);
+    }
+    assets.set(asset.path, asset);
+  }
+}
+
+export function readPreviewAsset(path: string): PreviewAsset | null {
+  return assets.get(path) ?? null;
+}
