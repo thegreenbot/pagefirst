@@ -38,6 +38,7 @@ The server reads these variables:
 - `R2_BUCKET`, `R2_API_TOKEN` — the sites bucket and a token that can only read and write that bucket.
 - `PUBLISH_DOMAIN` — the domain sites are published under, e.g. `example.com` gives each site `p1a2b3c4d5.example.com`. With R2 and `DATABASE_URL`, each account publishes to its own site. See [runbooks/site-publishing.md](runbooks/site-publishing.md).
 - `THEME_REGISTRY_PUBLIC_KEYS` — the theme registry's Ed25519 public keys (comma-separated, for rotation). Publishes render a registry theme version only when one of these keys countersigned it. `THEME_REGISTRY_SIGNING_KEY` — the matching private key, only where versions are published. See [runbooks/theme-registry.md](runbooks/theme-registry.md).
+- `CLOUDFLARE_BROWSER_TOKEN` — optional. An API token with only "Browser Rendering - Edit", used with `CLOUDFLARE_ACCOUNT_ID` to screenshot theme change previews and diff them pixel by pixel. Without it, previews compare markup only.
 - `CLOUDFLARE_API_TOKEN` — only for the old shared Pages project, used while R2 is not configured.
 - `DATABASE_URL` — optional Neon Postgres connection string (set by the Vercel Neon integration). Without it the app runs without sessions in the database, audit or shared state. See [ADR 0001](docs/adr/0001-persistent-store.md).
 - `KV_REST_API_URL`, `KV_REST_API_TOKEN` — optional Upstash Redis for shared rate limits (set by the Vercel Upstash integration). Without them, limits are shared through Postgres when `DATABASE_URL` is set, otherwise kept per process.
