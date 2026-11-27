@@ -114,6 +114,8 @@ export type CommitSuccess = {
 export type CommitFailure = {
   ok: false;
   status: number;
+  /** A stable machine-readable code (see ServiceErrorCode in lib/service). */
+  code?: string;
   error: string;
   page?: Page;
 };
