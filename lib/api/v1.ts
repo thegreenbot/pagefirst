@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authenticateBearer, unauthorizedHeaders } from "@/lib/api-auth";
+import { authenticateBearer, unauthorizedHeaders, type Credential } from "@/lib/api-auth";
 import { requestIdFrom } from "@/lib/audit";
 import { checkRateLimit, withRateLimit } from "@/lib/guard";
 import { rateLimitHeaders } from "@/lib/ratelimit";
@@ -80,7 +80,7 @@ export function apiError(
 
 const IDEMPOTENT_BODY_MAX = 600 * 1024;
 
-export type V1Handler = (ctx: ServiceContext, request: Request) => Promise<NextResponse | Response | object>;
+export type V1Handler = (ctx: ServiceContext, request: Request, credential: Credential) => Promise<NextResponse | Response | object>;
 
 /**
  * Runs a handler as an authenticated, rate-limited `/api/v1` call. ServiceError
@@ -139,7 +139,7 @@ export async function v1(
 
   let response: NextResponse;
   try {
-    const result = await handler(ctx, request);
+    const result = await handler(ctx, request, auth.credential);
     response = result instanceof Response ? (result as NextResponse) : NextResponse.json(result);
   } catch (error) {
     if (error instanceof ServiceError) {

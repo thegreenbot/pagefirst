@@ -9,6 +9,7 @@ import { SCOPES } from "@/lib/service/context";
 const error = { $ref: "#/components/responses/Error" };
 const secured = [{ bearer: [] }];
 const idempotencyKey = { name: "Idempotency-Key", in: "header", required: true, description: "1 to 255 characters of letters, digits and _ . : -. A retry with the same key and body returns the first response (Idempotent-Replayed: true); the same key with a different body is idempotency_mismatch (422); the same key while the first call runs is in_progress (409). Keys last 24 hours per credential.", schema: { type: "string", maxLength: 255 } };
+const jobId = { name: "id", in: "path", required: true, schema: { type: "string" } };
 const fileId = { name: "fileId", in: "path", required: true, schema: { type: "string" } };
 
 export const openapi = {
@@ -61,6 +62,28 @@ export const openapi = {
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["revisionId"], properties: { revisionId: { type: "string" }, public: { type: "boolean" } } } } } },
         responses: { "200": { description: "Published" }, default: error },
       },
+    },
+    "/jobs": {
+      post: {
+        operationId: "createJob",
+        summary: "Start a bulk job (commit, publish, import, import_and_publish) over many pages",
+        description: "Runs in the background as the credential's owner. Poll GET /jobs/{id}. dryRun reports what would happen without writing. Each item succeeds or fails on its own.",
+        parameters: [idempotencyKey],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["kind", "items"], properties: { kind: { type: "string", enum: ["commit", "publish", "import", "import_and_publish"] }, items: { type: "array", items: { type: "object", required: ["fileId"], properties: { fileId: { type: "string" } } } }, dryRun: { type: "boolean" }, policy: { type: "object" } } } } } },
+        responses: { "202": { description: "Accepted" }, default: error },
+      },
+    },
+    "/jobs/{id}": {
+      get: { operationId: "getJob", summary: "Job status, counts and per-item results", parameters: [jobId], responses: { "200": { description: "OK" }, default: error } },
+    },
+    "/jobs/{id}/cancel": {
+      post: { operationId: "cancelJob", summary: "Stop a job; finished items stay finished", parameters: [jobId], responses: { "200": { description: "OK" }, default: error } },
+    },
+    "/jobs/{id}/resume": {
+      post: { operationId: "resumeJob", summary: "Resume a cancelled or paused job", parameters: [jobId], responses: { "200": { description: "OK" }, default: error } },
+    },
+    "/jobs/{id}/report": {
+      get: { operationId: "getJobReport", summary: "Per-item report as JSON, or CSV with ?format=csv", parameters: [jobId], responses: { "200": { description: "OK" }, default: error } },
     },
   },
   components: {

@@ -399,4 +399,44 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idempotency_keys_expires_idx ON idempotency_keys (expires_at);
     `,
   },
+  {
+    id: 20,
+    name: "bulk jobs",
+    sql: `
+      -- Background jobs run as a credential's owner (#40). Progress lives here, so
+      -- a job survives a process restart and resumes where it stopped.
+      CREATE TABLE jobs (
+        id               text PRIMARY KEY,
+        credential_id    text NOT NULL,
+        sub              text NOT NULL,
+        scopes           text[] NOT NULL,
+        site_folders     text[],
+        kind             text NOT NULL CHECK (kind IN ('commit', 'publish', 'import', 'import_and_publish')),
+        status           text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'done', 'cancelled')),
+        dry_run          boolean NOT NULL DEFAULT false,
+        policy           jsonb NOT NULL DEFAULT '{}',
+        cancel_requested boolean NOT NULL DEFAULT false,
+        created_at       timestamptz NOT NULL DEFAULT now(),
+        started_at       timestamptz,
+        finished_at      timestamptz
+      );
+      CREATE INDEX jobs_credential_idx ON jobs (credential_id, created_at DESC);
+
+      CREATE TABLE job_items (
+        job_id      text NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        idx         integer NOT NULL,
+        file_id     text NOT NULL,
+        params      jsonb NOT NULL DEFAULT '{}',
+        status      text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'ok', 'skipped', 'conflict', 'error', 'cancelled')),
+        code        text,
+        message     text,
+        result      jsonb,
+        attempts    integer NOT NULL DEFAULT 0,
+        started_at  timestamptz,
+        finished_at timestamptz,
+        PRIMARY KEY (job_id, idx)
+      );
+      CREATE INDEX job_items_pending_idx ON job_items (job_id, status, idx);
+    `,
+  },
 ];
