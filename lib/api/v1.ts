@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { authenticateBearer, unauthorizedHeaders, type Credential } from "@/lib/api-auth";
-import { requestIdFrom } from "@/lib/audit";
+import { clientIp, recordAudit, requestIdFrom, type AuditEvent } from "@/lib/audit";
 import { checkRateLimit, withRateLimit } from "@/lib/guard";
 import { rateLimitHeaders } from "@/lib/ratelimit";
 import { readTextCapped } from "@/lib/http/body";
@@ -80,7 +80,10 @@ export function apiError(
 
 const IDEMPOTENT_BODY_MAX = 600 * 1024;
 
-export type V1Handler = (ctx: ServiceContext, request: Request, credential: Credential) => Promise<NextResponse | Response | object>;
+/** Fields a handler adds to the audit event the wrapper records for its call. */
+export type AuditNote = Pick<AuditEvent, "fileId" | "baseRevisionId" | "resultRevisionId" | "ops" | "siteId" | "pagePath">;
+
+export type V1Handler = (ctx: ServiceContext, request: Request, note: AuditNote, credential: Credential) => Promise<NextResponse | Response | object>;
 
 /**
  * Runs a handler as an authenticated, rate-limited `/api/v1` call. ServiceError
@@ -91,7 +94,11 @@ export async function v1(
   bucket: string,
   perMinute: number,
   handler: V1Handler,
-  options: { idempotent?: boolean } = {},
+  options: {
+    idempotent?: boolean;
+    /** Record this event for the call: ok when the handler returns, denied or error when it fails. */
+    audit?: AuditEvent["event"];
+  } = {},
 ): Promise<NextResponse> {
   const requestId = requestIdFrom(request);
   const auth = await authenticateBearer(request);
@@ -138,12 +145,17 @@ export async function v1(
   }
 
   let response: NextResponse;
+  const note: AuditNote = {};
+  let outcome: "ok" | "denied" | "error" = "ok";
+  let failure: string | null = null;
   try {
-    const result = await handler(ctx, request, auth.credential);
+    const result = await handler(ctx, request, note, auth.credential);
     response = result instanceof Response ? (result as NextResponse) : NextResponse.json(result);
   } catch (error) {
     if (error instanceof ServiceError) {
       const retryAfter = error.retryAfterSeconds;
+      outcome = error.code === "forbidden" || error.code === "conflict" ? "denied" : "error";
+      failure = apiCodeFor(error.code);
       response = apiError(
         requestId,
         apiCodeFor(error.code),
@@ -153,8 +165,25 @@ export async function v1(
       );
     } else {
       console.error("v1 handler failed", requestId, error instanceof Error ? error.name : "unknown");
+      outcome = "error";
+      failure = "upstream_error";
       response = apiError(requestId, "upstream_error", "The request could not be completed.");
     }
+  }
+  if (options.audit) {
+    await recordAudit({
+      ...note,
+      event: options.audit,
+      outcome,
+      status: response.status,
+      errorCode: failure,
+      requestId,
+      idempotencyKey: ctx.idempotencyKey ?? null,
+      actorSub: ctx.actor.sub,
+      actorKey: `${auth.credential.kind}:${auth.credential.id}`,
+      client: ctx.actor.client,
+      ip: clientIp(request),
+    });
   }
   if (claim) {
     try {

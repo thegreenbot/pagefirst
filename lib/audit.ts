@@ -17,6 +17,7 @@ export type AuditEventName =
   | "page.commit"
   | "page.import"
   | "page.publish"
+  | "job.started"
   | "page.presentation"
   | "site.theme.update"
   | "site.theme.preview"
@@ -151,12 +152,13 @@ export type AuditRow = {
 };
 
 /** The newest events for one account, for "my activity". */
-export async function auditEventsFor(sub: string, limit = 100): Promise<AuditRow[]> {
+export async function auditEventsFor(sub: string, limit = 100, beforeId?: string): Promise<AuditRow[]> {
   return query<AuditRow>(
     `SELECT id::text, at, event, outcome, status, file_id, base_revision_id, result_revision_id,
             op_count, op_kinds, client, request_id, error_code, site_id, page_path
-       FROM audit_events WHERE actor_sub = $1 ORDER BY at DESC, id DESC LIMIT $2`,
-    [sub, Math.min(Math.max(limit, 1), 500)],
+       FROM audit_events WHERE actor_sub = $1 AND ($3::bigint IS NULL OR id < $3::bigint)
+      ORDER BY at DESC, id DESC LIMIT $2`,
+    [sub, Math.min(Math.max(limit, 1), 500), beforeId ?? null],
   );
 }
 

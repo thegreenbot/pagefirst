@@ -31,7 +31,7 @@ export function POST(request: Request) {
     request,
     "v1-jobs-create",
     10,
-    async (ctx, _request, credential) => {
+    async (ctx, _request, note, credential) => {
       if (!ctx.actor.sub) throw new ServiceError("unsupported", "Jobs need a signed-in account.");
       const body = await readJson(request, 2 * 1024 * 1024);
       if (!isRecord(body)) throw new ServiceError("invalid", "The body must be a JSON object.");
@@ -66,6 +66,6 @@ export function POST(request: Request) {
       after(() => advanceJob(job.id).catch(() => undefined));
       return NextResponse.json({ job: { id: job.id, kind: job.kind, status: job.status, dryRun: job.dryRun, createdAt: job.createdAt }, counts: await jobCounts(job.id) }, { status: 202 });
     },
-    { idempotent: true },
+    { idempotent: true, audit: "job.started" },
   );
 }

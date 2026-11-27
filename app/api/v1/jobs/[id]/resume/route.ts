@@ -9,7 +9,7 @@ export const maxDuration = 60;
 
 /** Re-queues items that failed, conflicted or were cancelled; finished items never run again. */
 export function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  return v1(request, "v1-jobs-resume", 30, async (ctx, _request, credential) => {
+  return v1(request, "v1-jobs-resume", 30, async (ctx, _request, _note, credential) => {
     const { id } = await context.params;
     const job = await resumeJob(id, `${credential.kind}:${credential.id}:${ctx.actor.sub}`);
     if (!job) throw new ServiceError("not_found", "Job not found.");
