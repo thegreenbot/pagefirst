@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { readTextCapped } from "@/lib/http/body";
 import { callerKey, checkRateLimit, requireGoogleWriter, tooManyRequests } from "@/lib/guard";
-import { isSafeId, type CommitResult, type Op } from "@/lib/page/types";
+import { isSafeId, type CommitResult } from "@/lib/page/types";
+import { LIMITS, validateCommitRequest } from "@/lib/page/validate";
 import { commitPage } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +13,7 @@ const COMMIT_LIMIT = 30;
 export async function POST(
   request: Request,
   context: { params: Promise<{ fileId: string }> },
-): Promise<NextResponse<CommitResult | { error: string }>> {
+): Promise<NextResponse<CommitResult | { error: string; path?: string }>> {
   const { fileId } = await context.params;
   if (!isSafeId(fileId)) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
@@ -27,34 +29,24 @@ export async function POST(
     return tooManyRequests("Too many saves. Wait a moment and try again.", limit.retryAfterSeconds);
   }
 
+  const read = await readTextCapped(request, LIMITS.maxBodyBytes);
+  if (!read.ok) {
+    return NextResponse.json({ error: "Request is too large" }, { status: 413 });
+  }
+
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(read.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json(
-      { error: "Expected baseRevisionId and ops" },
-      { status: 400 },
-    );
+  const parsed = validateCommitRequest(body);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: `${parsed.path}: ${parsed.error}`, path: parsed.path }, { status: 400 });
   }
+  const { baseRevisionId, ops } = parsed.value;
 
-  const { baseRevisionId, ops } = body as {
-    baseRevisionId?: unknown;
-    ops?: unknown;
-  };
-  if (!Array.isArray(ops)) {
-    return NextResponse.json({ error: "ops must be an array" }, { status: 400 });
-  }
-  if (typeof baseRevisionId !== "string") {
-    return NextResponse.json(
-      { error: "baseRevisionId must be a string" },
-      { status: 400 },
-    );
-  }
-
-  const result = await commitPage(fileId, baseRevisionId, ops as Op[]);
+  const result = await commitPage(fileId, baseRevisionId, ops);
   return NextResponse.json(result, { status: result.ok ? 200 : result.status });
 }

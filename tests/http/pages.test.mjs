@@ -211,6 +211,36 @@ describe("page routes signed in to Google", () => {
     assert.doesNotMatch(text, /test-client-secret/);
   });
 
+  test("a malformed op is a 400 with a field path, never a 502 from Google", async () => {
+    const res = await postJson(
+      app.base,
+      "/api/pages/boom/commit",
+      { baseRevisionId: "rev-2", ops: [{ op: "setTag", nodeId: "n_1", tag: "script" }] },
+      signedIn,
+    );
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(body.path, "ops[0].tag");
+    assert.match(body.error, /^ops\[0\]\.tag: /);
+  });
+
+  test("a body over 512 KB is a 413 before it is parsed", async () => {
+    const res = await postJson(
+      app.base,
+      "/api/pages/boom/commit",
+      { baseRevisionId: "rev-2", ops: [{ op: "replaceText", nodeId: "n_1", text: "x".repeat(600 * 1024) }] },
+      signedIn,
+    );
+    assert.equal(res.status, 413);
+  });
+
+  test("too many ops is a 400", async () => {
+    const ops = Array.from({ length: 201 }, () => ({ op: "insertSection", index: 0 }));
+    const res = await postJson(app.base, "/api/pages/boom/commit", { baseRevisionId: "rev-2", ops }, signedIn);
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).path, "ops");
+  });
+
   test("an empty commit on the current revision succeeds", async () => {
     const res = await postJson(app.base, "/api/pages/doc1/commit", { baseRevisionId: "rev-2", ops: [] }, signedIn);
     assert.equal(res.status, 200);
