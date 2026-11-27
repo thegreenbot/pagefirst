@@ -108,3 +108,10 @@ describe("validateCommitRequest", () => {
     assert.ok(result.ok && result.value.ops[0] !== valid.replaceText);
   });
 });
+
+test("setMetadata refuses presentation keys, which the app stores (#56)", () => {
+  for (const key of ["template", "theme", "Template"]) {
+    const result = validateCommitRequest({ baseRevisionId: "r1", ops: [{ op: "setMetadata", key, value: "x" }] });
+    assert.equal(result.ok, false, key);
+  }
+});

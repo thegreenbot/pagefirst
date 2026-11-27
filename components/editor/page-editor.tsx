@@ -15,6 +15,8 @@ import {
   type Section,
 } from "@/lib/page/types";
 import { renderPage } from "@/lib/theme/engine";
+import { withPresentation } from "@/lib/theme/presentation";
+import type { PagePresentation, SiteThemeConfig } from "@/lib/site/theme-config";
 import type { ThemePackage } from "@/lib/theme/package";
 
 const buttonClass =
@@ -176,11 +178,16 @@ export function PageEditor({
   sample,
   theme,
   nonce,
+  siteConfig,
+  presentation: initialPresentation,
 }: {
   initial: Page;
   sample: boolean;
   theme: ThemePackage;
   nonce: string;
+  /** Null when there is no stored site (sample mode or no database). */
+  siteConfig: Pick<SiteThemeConfig, "settings" | "tokens"> | null;
+  presentation: PagePresentation | null;
 }) {
   const [model, setModel] = useState(() => createModel(initial));
   const modelRef = useRef(model);
@@ -194,17 +201,21 @@ export function PageEditor({
   const [publicCopy, setPublicCopy] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusToken, setFocusToken] = useState(0);
+  const [presentation, setPresentation] = useState<PagePresentation>(
+    () => initialPresentation ?? { template: "page", sectionStyles: {} },
+  );
 
   modelRef.current = model;
   const dirty = model.pending.length > 0;
   const { draft } = model;
   const rendered = useMemo(() => {
     try {
-      return { ...renderPage(draft, theme, { mode: "edit" }), error: "" };
+      const applied = withPresentation(draft, siteConfig, siteConfig ? presentation : null);
+      return { ...renderPage(applied.page, theme, { ...applied.options, mode: "edit" }), error: "" };
     } catch (error) {
       return { html: "", csp: "", warnings: [], error: messageOf(error) };
     }
-  }, [draft, theme]);
+  }, [draft, theme, siteConfig, presentation]);
   const located = locate(draft, selectedId);
 
   function edit(op: Op): boolean {
@@ -253,6 +264,28 @@ export function PageEditor({
     if (!node || node.tag === "img" || node.tag === "ul" || node.tag === "ol") return;
     if ((node.text ?? "") === text) return;
     edit({ op: "replaceText", nodeId: id, text });
+  }
+
+  async function savePresentation(next: PagePresentation) {
+    const previous = presentation;
+    setPresentation(next);
+    try {
+      const response = await fetch(`/api/pages/${modelRef.current.draft.fileId}/presentation`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      const data = await readJson(response);
+      if (!response.ok) {
+        setPresentation(previous);
+        setStatus(errorText(data, response));
+        return;
+      }
+      setStatus("Saved.");
+    } catch (error) {
+      setPresentation(previous);
+      setStatus(messageOf(error));
+    }
   }
 
   async function onCommit() {
@@ -464,6 +497,10 @@ export function PageEditor({
             }}
             onInsertParagraph={insertParagraph}
             onInsertBlock={insertNamedBlock}
+            presentation={siteConfig ? presentation : null}
+            onPresentation={(next) => {
+              void savePresentation(next);
+            }}
           />
           {rendered.warnings.length > 0 ? (
             <ul className="mt-4 grid gap-1 text-xs text-ink-soft">
@@ -638,7 +675,7 @@ function MetadataEditor({
         Page metadata
       </summary>
       <div className="grid gap-4 border-t border-rule px-4 py-4">
-        {(["title", "description", "template"] as const).map((key) => (
+        {(["title", "description"] as const).map((key) => (
           <MetaField key={key} name={key} value={metadata[key] ?? ""} onEdit={onEdit} />
         ))}
       </div>
@@ -651,7 +688,7 @@ function MetaField({
   value,
   onEdit,
 }: {
-  name: "title" | "description" | "template";
+  name: "title" | "description";
   value: string;
   onEdit: (op: Op) => boolean;
 }) {
@@ -692,6 +729,8 @@ function Inspector({
   onRemove,
   onInsertParagraph,
   onInsertBlock,
+  presentation,
+  onPresentation,
 }: {
   located: Located | null;
   sections: Section[];
@@ -702,6 +741,9 @@ function Inspector({
   onRemove: (nodeId: string) => void;
   onInsertParagraph: (sectionId: string) => void;
   onInsertBlock: (sectionId: string, block: Block) => void;
+  /** Null when presentation cannot be stored (sample mode). */
+  presentation: PagePresentation | null;
+  onPresentation: (next: PagePresentation) => void;
 }) {
   const section = located?.section ?? sections[sections.length - 1];
   const sectionNumber = section ? sections.indexOf(section) + 1 : 0;
@@ -711,6 +753,23 @@ function Inspector({
 
   return (
     <div className="grid gap-5 border border-rule px-4 py-4">
+      {presentation ? (
+        <label className="grid gap-1 text-sm text-ink">
+          <span className="text-xs font-medium uppercase tracking-[0.14em] text-ink-soft">Page template</span>
+          <select
+            className="border border-rule bg-paper px-2 py-1 text-sm text-ink"
+            value={presentation.template}
+            onChange={(event) => onPresentation({ ...presentation, template: event.target.value })}
+          >
+            {Object.entries(theme.manifest.templates).map(([name, template]) => (
+              <option key={name} value={name}>
+                {template.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
       {!located ? (
         <p className="text-sm text-ink-soft">Select part of the page to edit it. Type in headings and paragraphs directly.</p>
       ) : null}
@@ -769,6 +828,33 @@ function Inspector({
 
       {section ? (
         <div className="grid gap-2">
+          {presentation && located && (theme.manifest.sectionStyles ?? []).length > 0 ? (
+            <fieldset className="grid gap-1">
+              <legend className="text-xs font-medium uppercase tracking-[0.14em] text-ink-soft">
+                Section {sectionNumber} style
+              </legend>
+              {(theme.manifest.sectionStyles ?? []).map((style) => {
+                const current = presentation.sectionStyles[section.id] ?? [];
+                return (
+                  <label key={style} className="flex items-center gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      checked={current.includes(style)}
+                      onChange={(event) => {
+                        const nextStyles = event.target.checked
+                          ? [...current, style]
+                          : current.filter((value) => value !== style);
+                        const sectionStyles = { ...presentation.sectionStyles, [section.id]: nextStyles };
+                        if (nextStyles.length === 0) delete sectionStyles[section.id];
+                        onPresentation({ ...presentation, sectionStyles });
+                      }}
+                    />
+                    {style}
+                  </label>
+                );
+              })}
+            </fieldset>
+          ) : null}
           <p className="text-xs font-medium uppercase tracking-[0.14em] text-ink-soft">
             Add to section {sectionNumber}
           </p>
