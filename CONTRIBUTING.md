@@ -44,3 +44,11 @@ node scripts/install-origin-git-flow.mjs
 Terraform also creates the **page-first PR CI** automation, which runs `npm run ci` (lint, unit tests, and `npm audit`) when a pull request opens or gets new commits, posts a comment, and reports a check run. Without Terraform, create that automation at [cursor.com/automations](https://cursor.com/automations) from `automation/pr-ci-prompt.md`.
 
 `.github/workflows/ci.yml` runs the same `npm run ci` command if a CI app such as Depot or Buildkite is connected to the Origin repo.
+
+## Secrets
+
+Secrets live only in the deployment environment, never in the repository. That covers `GOOGLE_CLIENT_SECRET`, `CLOUDFLARE_API_TOKEN`, the token-encryption key, and `CURSOR_TOKEN` for `infra/git-flow`, which is only exported in the shell that runs Terraform.
+
+- Do not commit `.env` files. `.gitignore` excludes `.env*`, `*.pem` and Terraform state (`*.tfstate`, `.terraform/`).
+- The **Secret scan** workflow runs gitleaks on every pull request and push, and over the full history weekly. GitHub secret scanning with push protection blocks known token formats at push time.
+- If a secret reaches a commit, treat it as leaked even if the commit is removed: rotate it with [runbooks/secret-rotation.md](runbooks/secret-rotation.md), then follow [runbooks/incident-response.md](runbooks/incident-response.md).
