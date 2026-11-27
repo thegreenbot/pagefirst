@@ -36,6 +36,9 @@ The server reads these variables:
 - `GOOGLE_CLIENT_SECRET`
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
+- `DATABASE_URL` — optional Neon Postgres connection string (set by the Vercel Neon integration). Without it the app runs without sessions in the database, audit or shared state. See [ADR 0001](docs/adr/0001-persistent-store.md).
+- `KV_REST_API_URL`, `KV_REST_API_TOKEN` — optional Upstash Redis for shared rate limits (set by the Vercel Upstash integration).
+- `TOKEN_ENCRYPTION_KEY` — 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts stored Google refresh tokens.
 - `APP_URL` — optional public origin with no trailing slash. When it is unset, a request whose host ends with `.vercel.app` uses `https://page-first.apps.grok.bot`.
 
 Set them in the server environment. This repository does not include values for them.
