@@ -43,6 +43,10 @@ Register the Google redirect URI as the site origin plus `/api/auth/callback`. T
 
 `develop` is where features merge. Releases are `release/vX.Y.Z` branches merged into `main` and tagged `vX.Y.Z`. Direct pushes to `main` are blocked. Pull requests run lint, unit tests, and a security audit via `npm run ci`. The rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Security
+
+The [threat model](docs/security/threat-model.md) lists what Pagefirst protects, the controls in place and the open gaps. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+
 ## Plan
 
 `/plan` still holds the written plan.
