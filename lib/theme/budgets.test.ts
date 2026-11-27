@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { budgetsFor, checkBudgets, DEFAULT_BUDGETS, measure } from "./budgets";
+import { budgetsFor, checkBudgets, DEFAULT_BUDGETS, measure, shipsJs } from "./budgets";
 import { nodeOptimizer, publishedCsp } from "./csp";
 import { renderPage } from "./engine";
 import { themeFixtures } from "./fixtures";
@@ -69,5 +69,11 @@ describe("theme budgets (#58)", () => {
     assert.equal(measured.fontKb, 100);
     const breaches = checkBudgets(measured, { ...DEFAULT_BUDGETS, jsKb: 0, preloadedFonts: 1 });
     assert.deepEqual(breaches.map((breach) => [breach.budget, breach.unit]), [["jsKb", "bytes"], ["preloadedFonts", "files"]]);
+  });
+
+  test("knows whether a page ships JavaScript, which decides if TBT is enforced", () => {
+    assert.equal(shipsJs(render(getDefaultTheme())), false);
+    assert.equal(shipsJs({ html: "<p>x</p><script>y()</script>", assets: [] }), true);
+    assert.equal(shipsJs({ html: "<p>x</p>", assets: [{ path: "assets/pf/a.js", contentType: "text/javascript; charset=utf-8", body: "y()" }] }), true);
   });
 });

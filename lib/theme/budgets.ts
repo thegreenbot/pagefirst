@@ -91,3 +91,8 @@ export function checkBudgets(measured: Measurement, budgets: Measurement): Breac
     return measured[budget] > limit ? [{ budget, label: BUDGET_LABELS[budget], actual: measured[budget], limit, unit: files ? "files" as const : "bytes" as const }] : [];
   });
 }
+
+/** Whether a rendered page runs any script: an island module or an inline loader. */
+export function shipsJs(result: Pick<RenderResult, "html" | "assets">): boolean {
+  return result.html.includes("<script") || result.assets.some((asset) => asset.contentType.startsWith("text/javascript"));
+}
