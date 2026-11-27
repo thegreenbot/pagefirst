@@ -145,6 +145,12 @@ export async function siteAllows(siteId: string, feature: Feature): Promise<bool
   return featureAllowed(await planForSite(siteId), feature);
 }
 
+/** The same check for an organization, for features that belong to the organization rather than a site. */
+export async function requireOrgFeature(orgId: string, feature: Feature): Promise<void> {
+  const org = await getOrganization(orgId);
+  if (!org || !featureAllowed(org.plan, feature)) throw new PlanError(feature);
+}
+
 /** Throws PlanError (402) when the site's plan does not include the feature. */
 export async function requireFeature(siteId: string, feature: Feature): Promise<void> {
   if (!(await siteAllows(siteId, feature))) throw new PlanError(feature);
