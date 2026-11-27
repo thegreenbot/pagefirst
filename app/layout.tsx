@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Newsreader, Public_Sans } from "next/font/google";
 import "./globals.css";
 
@@ -20,11 +21,14 @@ export const metadata: Metadata = {
     "Edit a page, commit it to a Google Doc, and publish a static snapshot.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Reading request headers renders every page per request, so each response
+  // carries the CSP nonce that middleware generated for it.
+  await headers();
   return (
     <html lang="en" className={`${publicSans.variable} ${newsreader.variable}`}>
       <body className="antialiased">{children}</body>

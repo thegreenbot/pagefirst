@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isSafeId } from "@/lib/page/types";
+import { PUBLISHED_CSP } from "@/lib/page/render";
 import { readPreview } from "@/lib/publish/preview";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export async function GET(
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
+      "Content-Security-Policy": `${PUBLISHED_CSP}; frame-ancestors 'none'`,
     },
   });
 }
