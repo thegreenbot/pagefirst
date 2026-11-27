@@ -1,6 +1,8 @@
 import { Liquid, Tag, Value, type Context, type Emitter, type TagToken, type TopLevelToken } from "liquidjs";
 import type { Block, Page, Prose } from "@/lib/page/types";
 import { CRITICAL_CSS_BUDGET_BYTES, minifyCss, pruneUnusedOptions } from "./css";
+import { ISLAND_CSS, ISLAND_LOADER, JS_BUDGET_BYTES } from "./islands";
+import type { BlockLoad } from "./manifest";
 import type { ThemePackage } from "./package";
 import { resolveTokens, tokensCss } from "./tokens";
 
@@ -24,10 +26,11 @@ export type RenderOptions = {
    * into a <meta> tag. Server renders pass publishedCsp (lib/theme/csp.ts); the engine
    * itself has no Node imports so the editor can render in the browser.
    */
-  csp?: (styleTexts: string[], extra: { selfStyles: boolean }) => string;
+  csp?: (styleTexts: string[], extra: { selfStyles: boolean; scripts: string[] }) => string;
   /**
-   * Server-side helpers for splitting CSS (#59). Without them, or in edit mode,
-   * all of the page's CSS is inlined.
+   * Server-side helpers for splitting CSS (#59) and naming island modules (#60).
+   * Without them, or in edit mode, all of the page's CSS is inlined and no
+   * JavaScript ships.
    */
   optimizer?: { gzipSize: (text: string) => number; hash: (text: string) => string };
 };
@@ -82,6 +85,12 @@ type RenderState = {
   head: string;
   foot: string;
   footUsed: boolean;
+  /** The block whose template is rendering, for {% island %}. */
+  block: BlockView | null;
+  /** Module asset per block name that may mount as an island on this page. */
+  modules: Map<string, { asset: RenderAsset; load: BlockLoad }>;
+  /** Blocks that mounted an island, with whether one is in the first section. */
+  islands: Map<string, { firstSection: boolean }>;
 };
 
 const STATE = Symbol("pagefirst.render");
@@ -141,7 +150,7 @@ class PfHeadTag extends Tag {
   }
 }
 
-/** {% pf_foot %}: just before </body>. Deferred CSS, and island loaders later (#60). */
+/** {% pf_foot %}: just before </body>. Deferred CSS (#59) and the island loader (#60). */
 class PfFootTag extends Tag {
   render(ctx: Context, emitter: Emitter): void {
     const s = state(ctx);
@@ -150,7 +159,12 @@ class PfFootTag extends Tag {
   }
 }
 
-/** {% island %}…{% endisland %} marks where block JS mounts (#60). Until then it renders its body. */
+/**
+ * {% island %}…{% endisland %} marks where a block's JS mounts (#60). On a
+ * published page, inside a block that ships a module, the body is wrapped in
+ * <pf-island>; everywhere else (the editor, layouts, blocks without JS) it
+ * renders just its body.
+ */
 class IslandTag extends Tag {
   private body: ReturnType<Liquid["parser"]["parseTokens"]> = [];
   constructor(token: TagToken, remain: TopLevelToken[], liquid: Liquid) {
@@ -165,7 +179,18 @@ class IslandTag extends Tag {
     stream.start();
   }
   *render(ctx: Context, emitter: Emitter): Generator<unknown, void, unknown> {
+    const s = state(ctx);
+    const block = s.block;
+    const islandModule = block ? s.modules.get(block.name) : undefined;
+    if (!block || !islandModule) {
+      yield this.liquid.renderer.renderTemplates(this.body, ctx, emitter);
+      return;
+    }
+    const seen = s.islands.get(block.name);
+    s.islands.set(block.name, { firstSection: (seen?.firstSection ?? false) || block.section === 0 });
+    emitter.write(`<pf-island data-pf-src="/${escapeHtml(islandModule.asset.path)}" data-pf-load="${islandModule.load}">`);
     yield this.liquid.renderer.renderTemplates(this.body, ctx, emitter);
+    emitter.write("</pf-island>");
   }
 }
 
@@ -411,31 +436,69 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
     mode,
   };
 
-  const css = planCss(theme, usedBlocks, usedOptions, firstSectionBlocks, mode === "edit" ? undefined : options.optimizer, tokenStyle);
-  const csp = options.csp ? options.csp([tokenStyle, css.critical], { selfStyles: !!css.deferred }) : "";
-  const cspMeta = csp ? `\n<meta http-equiv="Content-Security-Policy" content="${csp.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">` : "";
-  const description = pageView.description
-    ? `\n<meta name="description" content="${escapeHtml(pageView.description)}">`
-    : "";
-  const head = `<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">${cspMeta}
-<meta name="referrer" content="strict-origin-when-cross-origin">
-<title>${escapeHtml(title)}</title>${description}
-<style data-pf-tokens>${tokenStyle}</style>
-<style>${css.critical}</style>`;
-
-  const foot = css.deferred ? `<link rel="stylesheet" href="/${css.deferred.path}">` : "";
-  const renderState: RenderState = { mode, html, head, foot, footUsed: false };
+  const optimizer = mode === "edit" ? undefined : options.optimizer;
+  const renderState: RenderState = {
+    mode,
+    html,
+    head: "",
+    foot: "",
+    footUsed: false,
+    block: null,
+    modules: islandModules(theme, usedBlocks, mode, optimizer, warnings),
+    islands: new Map(),
+  };
   const globals = { [STATE]: renderState };
 
+  // Blocks render first, so the head knows which islands the page mounts.
   for (const { view } of blocks) {
     if (!view.declared) {
       html.set(view, fallbackBlock(view, mode, html));
       continue;
     }
+    renderState.block = view;
     const out = liquid.renderFileSync(`blocks/${view.name}/block`, { ...scope, block: view }, { globals });
     html.set(view, String(out));
   }
+  renderState.block = null;
+  for (const name of renderState.modules.keys()) {
+    if (!renderState.islands.has(name)) warnings.push(`Block "${name}" ships JavaScript but its template has no {% island %}; it was not loaded`);
+  }
+  const islandAssets = [...renderState.islands.keys()].map((name) => renderState.modules.get(name)!.asset);
+  if (optimizer && islandAssets.length) {
+    const budget = Math.floor((manifest.budgets?.jsKb ?? JS_BUDGET_BYTES / 1024) * 1024);
+    const size = islandAssets.reduce((total, asset) => total + optimizer.gzipSize(asset.body), 0);
+    if (size > budget) warnings.push(`Island JavaScript is ${size} bytes compressed, over the ${budget} byte budget`);
+  }
+  const hasIslands = islandAssets.length > 0;
+
+  const css = planCss(theme, usedBlocks, usedOptions, firstSectionBlocks, optimizer, tokenStyle);
+  const criticalCss = hasIslands ? ISLAND_CSS + css.critical : css.critical;
+  const csp = options.csp
+    ? options.csp([tokenStyle, criticalCss], { selfStyles: !!css.deferred, scripts: hasIslands ? [ISLAND_LOADER] : [] })
+    : "";
+  const cspMeta = csp ? `\n<meta http-equiv="Content-Security-Policy" content="${csp.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">` : "";
+  const description = pageView.description
+    ? `\n<meta name="description" content="${escapeHtml(pageView.description)}">`
+    : "";
+  // Only islands in the first section are worth fetching before they are needed.
+  const preloads = [...renderState.islands]
+    .filter(([, island]) => island.firstSection)
+    .map(([name]) => `\n<link rel="modulepreload" href="/${renderState.modules.get(name)!.asset.path}">`)
+    .join("");
+  renderState.head = `<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">${cspMeta}
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>${escapeHtml(title)}</title>${description}
+<style data-pf-tokens>${tokenStyle}</style>
+<style>${criticalCss}</style>${preloads}`;
+  const foot = [
+    css.deferred ? `<link rel="stylesheet" href="/${css.deferred.path}">` : "",
+    hasIslands ? `<script>${ISLAND_LOADER}</script>` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  renderState.foot = foot;
+
   // Blocks were rendered in document order; a block never contains another block.
   let out = String(liquid.renderFileSync(`layouts/${template}`, scope, { globals }));
   if (foot && !renderState.footUsed) {
@@ -444,5 +507,35 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
     out = at === -1 ? `${out}${foot}` : `${out.slice(0, at)}${foot}\n${out.slice(at)}`;
   }
   if (out.length > LIMITS.outputBytes) throw new Error(`${manifest.name}: page output exceeds ${LIMITS.outputBytes} bytes`);
-  return { html: out, csp, warnings, assets: css.deferred ? [css.deferred] : [] };
+  const assets = [...(css.deferred ? [css.deferred] : []), ...islandAssets];
+  return { html: out, csp, warnings, assets };
+}
+
+/**
+ * One content-addressed module per block on the page that ships JS. Only
+ * published renders with the server optimizer ship JS; the editor never does.
+ */
+function islandModules(
+  theme: ThemePackage,
+  usedBlocks: Set<string>,
+  mode: RenderMode,
+  optimizer: RenderOptions["optimizer"],
+  warnings: string[],
+): RenderState["modules"] {
+  const modules: RenderState["modules"] = new Map();
+  if (mode !== "publish") return modules;
+  for (const name of usedBlocks) {
+    const load = theme.manifest.blocks[name]?.js?.load;
+    const source = theme.blockJs?.[name];
+    if (!load || !source) continue;
+    if (!optimizer) {
+      warnings.push(`Block "${name}" JavaScript was left out: this render has no optimizer to name its module`);
+      continue;
+    }
+    modules.set(name, {
+      load,
+      asset: { path: `assets/pf/${optimizer.hash(source)}.js`, contentType: "text/javascript; charset=utf-8", body: source },
+    });
+  }
+  return modules;
 }

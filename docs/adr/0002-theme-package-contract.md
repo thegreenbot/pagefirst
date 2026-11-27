@@ -71,7 +71,7 @@ All values are read-only plain data. Templates never see Drive ids, tokens, cook
 | Tag or filter | Behaviour |
 | --- | --- |
 | `{% pf_head %}` | Emits the engine-managed head: charset, CSP `<meta>`, title, description, the page's CSS (inlined or deferred, #59), preloads (#62, #63). Required in every layout. |
-| `{% pf_foot %}` | Emits engine-managed markup just before `</body>`: the deferred stylesheet link (#59) and, later, the island loader (#60). If a layout leaves it out, the engine inserts it before `</body>`. |
+| `{% pf_foot %}` | Emits engine-managed markup just before `</body>`: the deferred stylesheet link (#59) and the island loader (#60). If a layout leaves it out, the engine inserts it before `</body>`. |
 | `{% pf_node node %}` | Renders one node: prose through `partials/prose.liquid` if the theme has it, else the built-in prose markup; blocks through `blocks/<name>/block.liquid`. |
 | `{% pf_id node %}` | Emits ` data-pf-id="..."` in edit mode and nothing in publish mode. Put it on the root element of every block and prose node so the editor can target it. |
 | `{% image node %}` | Emits an `<img>` with `alt`, `width`, `height`, `srcset` and `sizes`, with eager loading and `fetchpriority="high"` for the first image above the fold and lazy loading for the rest (#61). |
@@ -100,6 +100,14 @@ The render function takes `mode: "edit" | "publish"`. The only difference is tha
 ### 8. Page CSS (#59)
 
 The page gets `styles/base.css` plus the `block.css` of each declared block on the page, minified, with selectors for declared options the page does not use removed. If that is 10 KB or less compressed, it is all inlined in one `<style>`. Otherwise base and first-section block CSS are inlined, and the rest is one content-addressed file, `/assets/pf/<hash>.css`, shared by pages with the same block set. That file is linked at the end of `<body>` rather than swapped from `media="print"` with an `onload` handler, so published pages keep `script-src 'none'`. The CSP then allows `style-src 'self'` as well as the inline style's hash. The editor preview always inlines everything.
+
+### 9. Block JavaScript as islands (#60)
+
+Pages ship no JavaScript by default. A block ships JS only when `theme.json` declares `"js": { "load": "visible" | "idle" | "interaction" }` and the package has `blocks/<name>/block.js`; one without the other is a load error. The module's default export is called once with the island element; no framework runtime is provided, so anything a module bundles counts against the per-page JS budget (`budgets.jsKb`, 15 KB compressed by default, reported as a render warning).
+
+On a published page, `{% island %}…{% endisland %}` in that block's template becomes `<pf-island data-pf-src="/assets/pf/<hash>.js" data-pf-load="…">` around its body. `pf-island` is `display: contents`, so it never changes layout. Each module is a content-addressed, immutable file. A loader under 1 KB is inlined before `</body>` only when the page has an island: `visible` uses an IntersectionObserver on the island's children, `idle` uses `requestIdleCallback`, and `interaction` waits for the first pointer, touch or focus inside the island. Islands in the first section also get `<link rel="modulepreload">`. The CSP then allows `script-src 'self'` and the loader's hash; pages without islands keep `script-src 'none'`.
+
+The editor preview never runs block JS: it renders the island's body only. A block with JS whose template has no `{% island %}` is reported and its module is not shipped.
 
 ## Consequences
 
