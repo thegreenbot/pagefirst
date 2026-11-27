@@ -205,4 +205,50 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    id: 9,
+    name: "theme registry versions",
+    sql: `
+      -- Published theme versions (#64). A version is immutable once written:
+      -- only its yank time and advisory can change, and it is never deleted.
+      CREATE TABLE theme_versions (
+        name              text NOT NULL,
+        version           text NOT NULL,
+        integrity         text NOT NULL UNIQUE,
+        archive           bytea NOT NULL,
+        manifest          jsonb NOT NULL,
+        budgets           jsonb NOT NULL,
+        scores            jsonb,
+        provenance        jsonb NOT NULL,
+        countersignature  text NOT NULL,
+        published_at      timestamptz NOT NULL DEFAULT now(),
+        yanked_at         timestamptz,
+        advisory          text,
+        PRIMARY KEY (name, version)
+      );
+
+      CREATE FUNCTION theme_versions_immutable() RETURNS trigger LANGUAGE plpgsql AS $fn$
+      BEGIN
+        IF TG_OP = 'UPDATE'
+          AND NEW.name = OLD.name AND NEW.version = OLD.version AND NEW.integrity = OLD.integrity
+          AND NEW.archive = OLD.archive AND NEW.manifest = OLD.manifest AND NEW.budgets = OLD.budgets
+          AND NEW.scores IS NOT DISTINCT FROM OLD.scores AND NEW.provenance = OLD.provenance
+          AND NEW.countersignature = OLD.countersignature AND NEW.published_at = OLD.published_at THEN
+          RETURN NEW;
+        END IF;
+        RAISE EXCEPTION 'theme versions are immutable; only yanked_at and advisory can change';
+      END;
+      $fn$;
+      CREATE TRIGGER theme_versions_no_rewrite
+        BEFORE UPDATE OR DELETE ON theme_versions
+        FOR EACH ROW EXECUTE FUNCTION theme_versions_immutable();
+      CREATE TRIGGER theme_versions_no_truncate
+        BEFORE TRUNCATE ON theme_versions
+        FOR EACH STATEMENT EXECUTE FUNCTION theme_versions_immutable();
+
+      -- A lock now points at a registry version (sha512-) or, for bundled
+      -- themes and older locks, a package snapshot (sha256-).
+      ALTER TABLE site_themes DROP CONSTRAINT site_themes_locked_integrity_fkey;
+    `,
+  },
 ];
