@@ -1,15 +1,16 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { openapi } from "./openapi";
 
 const ROOT = "app/api/v1";
 
 function routes(dir: string, found: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
+  for (const dirent of readdirSync(dir, { withFileTypes: true })) {
+    const entry = dirent.name;
     const full = path.join(dir, entry);
-    if (statSync(full).isDirectory()) routes(full, found);
+    if (dirent.isDirectory()) routes(full, found);
     else if (entry === "route.ts") {
       const route = "/" + path.relative(ROOT, dir).split(path.sep).filter(Boolean).join("/");
       const source = readFileSync(full, "utf8");
