@@ -25,5 +25,5 @@ export function POST(request: Request) {
     }
     const created = await createPage(ctx, body.title.trim());
     return NextResponse.json(created, { status: 201 });
-  });
+  }, { idempotent: true });
 }

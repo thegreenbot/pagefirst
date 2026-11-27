@@ -8,6 +8,7 @@ import { SCOPES } from "@/lib/service/context";
 
 const error = { $ref: "#/components/responses/Error" };
 const secured = [{ bearer: [] }];
+const idempotencyKey = { name: "Idempotency-Key", in: "header", required: true, description: "1 to 255 characters of letters, digits and _ . : -. A retry with the same key and body returns the first response (Idempotent-Replayed: true); the same key with a different body is idempotency_mismatch (422); the same key while the first call runs is in_progress (409). Keys last 24 hours per credential.", schema: { type: "string", maxLength: 255 } };
 const fileId = { name: "fileId", in: "path", required: true, schema: { type: "string" } };
 
 export const openapi = {
@@ -35,6 +36,7 @@ export const openapi = {
       post: {
         operationId: "createPage",
         summary: "Create a page from the template Doc",
+        parameters: [idempotencyKey],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title"], properties: { title: { type: "string", maxLength: 200 } } } } } },
         responses: { "201": { description: "Created" }, default: error },
       },
@@ -46,16 +48,16 @@ export const openapi = {
       post: {
         operationId: "commitPage",
         summary: "Apply ops against a base revision",
-        parameters: [fileId],
+        parameters: [fileId, idempotencyKey],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["baseRevisionId", "ops"], properties: { baseRevisionId: { type: "string" }, ops: { type: "array", items: { type: "object" } } } } } } },
-        responses: { "200": { description: "Committed" }, "409": { description: "revision_conflict" }, default: error },
+        responses: { "200": { description: "Committed" }, "409": { description: "revision_conflict, or in_progress for a duplicate key still running" }, "422": { description: "idempotency_mismatch" }, default: error },
       },
     },
     "/pages/{fileId}/publishes": {
       post: {
         operationId: "publishPage",
         summary: "Publish a pinned revision",
-        parameters: [fileId],
+        parameters: [fileId, idempotencyKey],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["revisionId"], properties: { revisionId: { type: "string" }, public: { type: "boolean" } } } } } },
         responses: { "200": { description: "Published" }, default: error },
       },

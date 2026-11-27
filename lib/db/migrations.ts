@@ -380,4 +380,23 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX sites_org_idx ON sites (org_id);
     `,
   },
+  {
+    id: 14,
+    name: "idempotency keys",
+    sql: `
+      -- (credential, key) -> what the first request did, kept 24 hours (#38).
+      CREATE TABLE idempotency_keys (
+        credential_id   text NOT NULL,
+        key             text NOT NULL,
+        request_hash    text NOT NULL,
+        state           text NOT NULL CHECK (state IN ('in_progress', 'done')),
+        response_status integer,
+        response_body   text,
+        created_at      timestamptz NOT NULL DEFAULT now(),
+        expires_at      timestamptz NOT NULL DEFAULT now() + interval '24 hours',
+        PRIMARY KEY (credential_id, key)
+      );
+      CREATE INDEX idempotency_keys_expires_idx ON idempotency_keys (expires_at);
+    `,
+  },
 ];
