@@ -90,7 +90,7 @@ globalThis.fetch = async function fakeGoogleFetch(input, init) {
     return json({ success: true });
   }
 
-  if (url.host.endsWith("cloudflare.com")) {
+  if (url.hostname === "cloudflare.com" || url.hostname.endsWith(".cloudflare.com")) {
     return json({ success: false, errors: [{ message: "no network in tests" }] }, 500);
   }
 
