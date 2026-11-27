@@ -51,6 +51,10 @@ Set them in the server environment. This repository does not include values for 
 
 Register the Google redirect URI as the site origin plus `/api/auth/callback`. In production that is `APP_URL` plus `/api/auth/callback`. On the local dev server that is `http://127.0.0.1:3847/api/auth/callback`.
 
+## Self-hosting
+
+[infra/instance](infra/instance/README.md) stands up a full instance (app, database, publish bucket and Worker, encryption key) from one config file, for self-hosting or a dedicated single-tenant instance. Upgrades are in [runbooks/instance-upgrade.md](runbooks/instance-upgrade.md).
+
 ## Branches
 
 `develop` is where features merge. Releases are `release/vX.Y.Z` branches merged into `main` and tagged `vX.Y.Z`. Direct pushes to `main` are blocked. Pull requests run lint, unit tests, and a security audit via `npm run ci`. The rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
