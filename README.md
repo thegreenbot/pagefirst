@@ -12,8 +12,14 @@ npm run dev
 `npm run dev` starts Next.js on port 3847 at 127.0.0.1. Open [http://127.0.0.1:3847](http://127.0.0.1:3847).
 
 ```bash
-npm test
+npm test               # unit tests
+npm run test:coverage  # unit tests with the coverage floor for lib/google and lib/guard
+npm run build
+npm run test:http      # route handlers over HTTP against the build, with a fake Google
+npm run test:e2e       # Playwright smoke test of the editor in sample mode
 ```
+
+`test:http` and `test:e2e` need `npm run build` first. `test:e2e` needs a Chromium from `npx playwright install chromium`, or set `PLAYWRIGHT_CHROMIUM_PATH` to one already installed.
 
 ## Sample mode
 

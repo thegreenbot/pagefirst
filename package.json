@@ -8,25 +8,29 @@
     "start": "next start -p 3847 -H 127.0.0.1",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test lib/page/*.test.ts lib/google/*.test.ts && node --test scripts/git-flow.test.mjs",
+    "test": "tsx --test lib/*.test.ts lib/page/*.test.ts lib/google/*.test.ts && node --test scripts/git-flow.test.mjs",
+    "test:coverage": "tsx --test --experimental-test-coverage --test-coverage-include='lib/google/**' --test-coverage-include=lib/guard.ts --test-coverage-exclude='**/*.test.ts' --test-coverage-lines=80 --test-coverage-branches=70 --test-coverage-functions=75 lib/*.test.ts lib/page/*.test.ts lib/google/*.test.ts",
+    "test:http": "node --test --test-concurrency=1 tests/http/*.test.mjs",
+    "test:e2e": "playwright test",
     "ci": "node scripts/ci.mjs",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
+    "next": "15.5.29",
     "react": "19.1.0",
-    "react-dom": "19.1.0",
-    "next": "15.5.29"
+    "react-dom": "19.1.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@playwright/test": "1.65.1",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.5.29",
-    "@eslint/eslintrc": "^3",
-    "tsx": "^4.23.15"
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
   }
 }
