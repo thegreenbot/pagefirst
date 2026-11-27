@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { buildAuthUrl, createPkce, exchangeCode } from "./oauth";
+import { buildAuthUrl, createPkce, exchangeCode, refreshAccessToken, revokeToken } from "./oauth";
 import { googleConfigured } from "./config";
 
 const saved = { ...process.env };
@@ -56,6 +56,14 @@ describe("buildAuthUrl", () => {
     assert.ok(!url.toString().includes("client-secret"));
   });
 
+  test("asks for offline access only when requested", () => {
+    const online = new URL(buildAuthUrl({ origin: "https://a", state: "s", verifier: "v" }));
+    assert.equal(online.searchParams.get("access_type"), null);
+    const offline = new URL(buildAuthUrl({ origin: "https://a", state: "s", verifier: "v", offline: true }));
+    assert.equal(offline.searchParams.get("access_type"), "offline");
+    assert.equal(offline.searchParams.get("prompt"), "consent");
+  });
+
   test("asks only for Docs and per-file Drive access", () => {
     const scopes = new URL(buildAuthUrl({ origin: "https://a", state: "s", verifier: "v" }))
       .searchParams.get("scope")!
@@ -83,7 +91,7 @@ describe("exchangeCode", () => {
   test("posts the code, verifier and redirect URI and returns the access token", async () => {
     const { calls } = stubFetch(Response.json({ access_token: "at-1" }));
     const result = await exchangeCode({ origin: "https://app.example", code: "c1", verifier: "v1" });
-    assert.deepEqual(result, { accessToken: "at-1" });
+    assert.deepEqual(result, { accessToken: "at-1", refreshToken: null, expiresInSeconds: 3600, scope: "" });
     assert.equal(calls[0].url, "https://oauth2.googleapis.com/token");
     const body = calls[0].body;
     assert.equal(body.get("code"), "c1");
@@ -91,6 +99,35 @@ describe("exchangeCode", () => {
     assert.equal(body.get("grant_type"), "authorization_code");
     assert.equal(body.get("redirect_uri"), "https://app.example/api/auth/callback");
     assert.equal(body.get("client_secret"), "client-secret");
+  });
+
+  test("returns the refresh token, lifetime and scopes when Google sends them", async () => {
+    stubFetch(Response.json({ access_token: "at", refresh_token: "rt", expires_in: 1200, scope: "openid drive.file" }));
+    assert.deepEqual(await exchangeCode({ origin: "https://a", code: "c", verifier: "v" }), {
+      accessToken: "at",
+      refreshToken: "rt",
+      expiresInSeconds: 1200,
+      scope: "openid drive.file",
+    });
+  });
+
+  test("refreshAccessToken sends a refresh_token grant", async () => {
+    const { calls } = stubFetch(Response.json({ access_token: "at-2", expires_in: 3599 }));
+    const result = await refreshAccessToken("rt-1");
+    assert.equal(result.accessToken, "at-2");
+    assert.equal(calls[0].body.get("grant_type"), "refresh_token");
+    assert.equal(calls[0].body.get("refresh_token"), "rt-1");
+  });
+
+  test("revokeToken posts the token and reports success; network errors return false", async () => {
+    const { calls } = stubFetch(new Response("", { status: 200 }));
+    assert.equal(await revokeToken("rt-1"), true);
+    assert.equal(calls[0].url, "https://oauth2.googleapis.com/revoke");
+    assert.equal(calls[0].body.get("token"), "rt-1");
+    globalThis.fetch = (async () => {
+      throw new Error("offline");
+    }) as typeof fetch;
+    assert.equal(await revokeToken("rt-1"), false);
   });
 
   test("throws on an error status without echoing the response", async () => {

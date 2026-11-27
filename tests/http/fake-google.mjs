@@ -3,12 +3,13 @@
 // exercised end to end without a network or a Google account.
 //
 // Behaviour is keyed on inputs, so tests stay independent:
-// - token endpoint: code "good" succeeds, "fail" returns 400, "empty" returns no token.
+// - token endpoint: code "good" succeeds (with a refresh token), refresh grants with it succeed, "fail" returns 400, "empty" returns no token.
 // - Docs: "missing" is 404, "boom" is 500, any other id is a document at revision "rev-2".
 // - userinfo: sub "fake-sub", verified email "Author@Example.com".
 // - Every Docs or Drive call must carry "Bearer fake-token", or it gets 401.
 
 export const FAKE_TOKEN = "fake-token";
+export const FAKE_REFRESH = "fake-refresh-token";
 const realFetch = globalThis.fetch;
 
 function json(body, status = 200) {
@@ -42,11 +43,21 @@ globalThis.fetch = async function fakeGoogleFetch(input, init) {
     if (form.get("client_secret") !== process.env.GOOGLE_CLIENT_SECRET) {
       return json({ error: "invalid_client" }, 401);
     }
+    if (form.get("grant_type") === "refresh_token") {
+      if (form.get("refresh_token") === FAKE_REFRESH) return json({ access_token: FAKE_TOKEN, expires_in: 3600 });
+      return json({ error: "invalid_grant" }, 400);
+    }
     if (!form.get("code_verifier")) return json({ error: "invalid_grant" }, 400);
     const code = form.get("code");
-    if (code === "good") return json({ access_token: FAKE_TOKEN });
+    if (code === "good") {
+      return json({ access_token: FAKE_TOKEN, refresh_token: FAKE_REFRESH, expires_in: 3600, scope: "openid email drive.file" });
+    }
     if (code === "empty") return json({});
     return json({ error: "invalid_grant" }, 400);
+  }
+
+  if (url.host === "oauth2.googleapis.com" && url.pathname === "/revoke") {
+    return new Response("", { status: 200 });
   }
 
   if (url.host === "openidconnect.googleapis.com" && url.pathname === "/v1/userinfo") {
