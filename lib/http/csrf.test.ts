@@ -114,6 +114,11 @@ describe("API key routes (#36)", () => {
   const post = (path: string, headers: Record<string, string>) =>
     new Request(`https://app.example${path}`, { method: "POST", headers, body: "{}" });
 
+  test("/api/mcp is bearer-only JSON like /api/v1", () => {
+    assert.deepEqual(checkMutation(post("/api/mcp", { "content-type": "application/json" }), "/api/mcp"), { ok: true });
+    assert.equal(checkMutation(post("/api/mcp", { "content-type": "text/plain" }), "/api/mcp").ok, false);
+  });
+
   test("/api/v1 reads no cookie, so it needs no Origin but must be JSON", () => {
     assert.deepEqual(checkMutation(post("/api/v1/pages", { "content-type": "application/json" }), "/api/v1/pages"), { ok: true });
     assert.equal(checkMutation(post("/api/v1/pages", { "content-type": "text/plain" }), "/api/v1/pages").ok, false);

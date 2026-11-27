@@ -8,12 +8,12 @@ export const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 /**
  * Routes authenticated by a bearer token only, never a cookie, so a cross-site
  * request gains nothing: the theme registry's trusted-publishing upload (#64),
- * called from GitHub Actions with an OIDC token, the versioned API, which
+ * called from GitHub Actions with an OIDC token, the versioned API and the MCP server on top of it, which
  * authenticates with an API key or OAuth token and ignores cookies (#36), SCIM
  * provisioning with a per-organization bearer token (#49), and the Stripe
  * webhook, which is authenticated by its signature over the body (#47).
  */
-const TOKEN_ROUTES = [/^\/api\/registry\/versions$/, /^\/api\/v1\//, /^\/api\/oauth\/register$/, /^\/api\/billing\/webhook$/, /^\/api\/scim\/v2\//];
+const TOKEN_ROUTES = [/^\/api\/registry\/versions$/, /^\/api\/v1\//, /^\/api\/mcp$/, /^\/api\/oauth\/register$/, /^\/api\/billing\/webhook$/, /^\/api\/scim\/v2\//];
 
 /** Public OAuth endpoints that read no cookie and take form-encoded bodies. */
 const FORM_ROUTES = [/^\/api\/oauth\/(token|revoke)$/];
