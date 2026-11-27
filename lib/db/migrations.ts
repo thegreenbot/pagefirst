@@ -189,4 +189,20 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    id: 8,
+    name: "files already on each site",
+    sql: `
+      -- What each site's bucket folder holds (#63), so republishing an unchanged
+      -- page or asset uploads nothing. key is the path inside the site's folder,
+      -- or host:<hostname> for the hostname record.
+      CREATE TABLE site_files (
+        site_id    text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        key        text NOT NULL,
+        sha256     text NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (site_id, key)
+      );
+    `,
+  },
 ];

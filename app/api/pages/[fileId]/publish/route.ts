@@ -59,7 +59,7 @@ export async function POST(
   const renderContext = await renderContextFor(payload.sample ? null : writer.sub, fileId);
   // Image renditions (#61): planned once, encoded only for destinations that lack them.
   const imagePlan = await planImages(payload.page);
-  const { html, csp, assets } = renderPageHtml(payload.page, "publish", renderContext, imagePlan.images);
+  const { html, csp, assets, preloads } = renderPageHtml(payload.page, "publish", renderContext, imagePlan.images);
   const previewImages = await encodeMissing(imagePlan.planned, (image) => image.paths.every((path) => readPreviewAsset(path) !== null));
   // Preview assets stay in this instance's memory; public publishing uploads them with the page.
   savePreviewAssets([...assets, ...previewImages.assets]);
@@ -105,7 +105,7 @@ export async function POST(
       const siteId = await siteForOwner(writer.sub);
       const uploaded = await siteHasRenditions(siteId, imagePlan.planned.map((image) => image.hash));
       const siteImages = await encodeMissing(imagePlan.planned, (image) => uploaded.has(image.hash));
-      const published = await publishToOwnSite(writer.sub, payload.page.path, { html, csp, assets: [...assets, ...siteImages.assets] });
+      const published = await publishToOwnSite(writer.sub, payload.page.path, { html, csp, preloads, assets: [...assets, ...siteImages.assets] });
       await recordSiteRenditions(published.siteId, siteImages.encoded);
       body.url = published.url;
       await audit("ok", "public", published.siteId);
