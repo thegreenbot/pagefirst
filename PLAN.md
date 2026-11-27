@@ -289,6 +289,6 @@ These have no slice because each one breaks the Doc as a readable source, or nee
 | Renderer | One function, `mode: "edit"` or `mode: "publish"`. |
 | CDN | Cloudflare Pages Direct Upload. Local `./out` when the token is absent. |
 | Shareable preview host | After slice 4. The editor is the preview until then. |
-| Database | None until unattended publish. |
+| Database | Neon Postgres for sessions, tokens, audit, snapshots and site config; Upstash Redis for shared rate limits. See `docs/adr/0001-persistent-store.md`. |
 | Conflict policy | 409 and reload. No merge in the first version. |
 | Stack | Next.js and TypeScript, when implementation starts. |

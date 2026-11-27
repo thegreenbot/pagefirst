@@ -4,6 +4,7 @@ import { googleConfigured } from "@/lib/google/config";
 import { aboutFixture, blankPage } from "@/lib/page/fixture";
 import { applyOps } from "@/lib/page/ops";
 import { parseDocument } from "@/lib/page/parse";
+import { redact } from "@/lib/log";
 import { getAccessToken } from "@/lib/session";
 import {
   isSafeId,
@@ -56,10 +57,6 @@ function errorText(err: unknown): string {
   return "Commit failed";
 }
 
-function redact(message: string, token: string): string {
-  const secrets = [token, process.env.GOOGLE_CLIENT_SECRET ?? ""].filter((secret) => secret.length > 0);
-  return secrets.reduce((text, secret) => text.split(secret).join("[redacted]"), message);
-}
 
 export async function isSampleMode(): Promise<boolean> {
   if (!googleConfigured()) return true;
