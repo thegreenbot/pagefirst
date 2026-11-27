@@ -41,4 +41,48 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    id: 3,
+    name: "append-only audit events",
+    sql: `
+      CREATE TABLE audit_events (
+        id                 bigserial PRIMARY KEY,
+        at                 timestamptz NOT NULL DEFAULT now(),
+        request_id         text,
+        actor_sub          text,
+        actor_key          text NOT NULL DEFAULT 'ui',
+        client             text NOT NULL DEFAULT 'ui' CHECK (client IN ('ui', 'api', 'mcp')),
+        event              text NOT NULL,
+        file_id            text,
+        base_revision_id   text,
+        result_revision_id text,
+        op_count           integer,
+        op_kinds           text[],
+        outcome            text NOT NULL CHECK (outcome IN ('ok', 'denied', 'error')),
+        status             integer,
+        error_code         text,
+        idempotency_key    text,
+        ip_hash            text
+      );
+      CREATE INDEX audit_events_actor_idx ON audit_events (actor_sub, at DESC);
+      CREATE INDEX audit_events_file_idx ON audit_events (file_id, at DESC);
+
+      -- History cannot be changed by the app. Retention deletes set
+      -- pagefirst.audit_maintenance = 'on' for their own transaction only.
+      CREATE FUNCTION audit_events_append_only() RETURNS trigger LANGUAGE plpgsql AS $fn$
+      BEGIN
+        IF TG_OP = 'DELETE' AND current_setting('pagefirst.audit_maintenance', true) = 'on' THEN
+          RETURN OLD;
+        END IF;
+        RAISE EXCEPTION 'audit_events is append-only';
+      END;
+      $fn$;
+      CREATE TRIGGER audit_events_no_update_delete
+        BEFORE UPDATE OR DELETE ON audit_events
+        FOR EACH ROW EXECUTE FUNCTION audit_events_append_only();
+      CREATE TRIGGER audit_events_no_truncate
+        BEFORE TRUNCATE ON audit_events
+        FOR EACH STATEMENT EXECUTE FUNCTION audit_events_append_only();
+    `,
+  },
 ];

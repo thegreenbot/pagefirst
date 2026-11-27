@@ -8,6 +8,7 @@ import { renderPublishHtml } from "@/lib/page/render";
 import { uploadToCloudflare } from "@/lib/publish/cloudflare";
 import { savePreview } from "@/lib/publish/preview";
 import { getPage } from "@/lib/store";
+import { auditRequest } from "@/lib/audit-request";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export async function POST(
   }
   const limit = checkRateLimit(`publish:${callerKey(writer.token, request)}`, 6);
   if (!limit.ok) {
+    await auditRequest(request, { event: "request.denied", outcome: "denied", fileId, status: 429, errorCode: "rate_limited:publish" });
     return tooManyRequests("Too many publish requests. Wait a minute.", limit.retryAfterSeconds);
   }
 
@@ -59,16 +61,31 @@ export async function POST(
     previewPath: `/published/${fileId}`,
   };
 
-  if (!wantsPublic) return NextResponse.json(body);
+  const audit = (outcome: "ok" | "denied" | "error", errorCode: string | null) =>
+    auditRequest(request, {
+      event: "page.publish",
+      outcome,
+      fileId,
+      resultRevisionId: payload.page.revisionId,
+      status: 200,
+      errorCode,
+    });
+
+  if (!wantsPublic) {
+    await audit("ok", "preview");
+    return NextResponse.json(body);
+  }
 
   if (!writer.token) {
     body.warning = "Sign in with Google before publishing a public copy.";
+    await audit("denied", "public:signed_out");
     return NextResponse.json(body);
   }
 
   const identity = await fetchGoogleIdentity(writer.token);
   if (!mayPublishPublicly(identity?.email ?? null)) {
     body.warning = "Public publishing is limited to approved accounts for now. Your preview is ready.";
+    await audit("denied", "public:not_allowed");
     return NextResponse.json(body);
   }
 
@@ -79,6 +96,7 @@ export async function POST(
   } catch (error) {
     body.warning = error instanceof Error ? error.message : "Cloudflare upload failed";
   }
+  await audit(body.url ? "ok" : "error", body.url ? "public" : "public:upload_failed");
 
   return NextResponse.json(body);
 }

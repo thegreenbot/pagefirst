@@ -3,6 +3,7 @@ import { createSession, saveGrant } from "@/lib/auth/server-sessions";
 import { oauthOrigin } from "@/lib/google/origin";
 import { exchangeCode } from "@/lib/google/oauth";
 import { fetchGoogleIdentity } from "@/lib/google/userinfo";
+import { auditRequest } from "@/lib/audit-request";
 import { clearPkce, getPkce, serverSessionsEnabled, setAccessToken, setSessionCookie } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
@@ -26,8 +27,10 @@ export async function GET(request: NextRequest) {
       await saveGrant(identity.sub, identity.email, grant);
       const sessionId = await createSession(identity.sub, request.headers.get("user-agent"));
       await setSessionCookie(sessionId);
+      await auditRequest(request, { event: "auth.sign_in", outcome: "ok", actorSub: identity.sub, status: 302 });
     } else {
       await setAccessToken(grant.accessToken);
+      await auditRequest(request, { event: "auth.sign_in", outcome: "ok", actorSub: null, status: 302 });
     }
     await clearPkce();
     return NextResponse.redirect(new URL("/", origin));

@@ -4,6 +4,7 @@ import { callerKey, checkRateLimit, requireGoogleWriter, tooManyRequests } from 
 import { isSafeId, type CommitResult } from "@/lib/page/types";
 import { LIMITS, validateCommitRequest } from "@/lib/page/validate";
 import { commitPage } from "@/lib/store";
+import { auditRequest } from "@/lib/audit-request";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ export async function POST(
   }
   const limit = checkRateLimit(`commit:${callerKey(writer.token, request)}`, COMMIT_LIMIT);
   if (!limit.ok) {
+    await auditRequest(request, { event: "request.denied", outcome: "denied", fileId, status: 429, errorCode: "rate_limited:commit" });
     return tooManyRequests("Too many saves. Wait a moment and try again.", limit.retryAfterSeconds);
   }
 
@@ -48,5 +50,15 @@ export async function POST(
   const { baseRevisionId, ops } = parsed.value;
 
   const result = await commitPage(fileId, baseRevisionId, ops);
+  await auditRequest(request, {
+    event: "page.commit",
+    outcome: result.ok ? "ok" : result.status === 409 ? "denied" : "error",
+    fileId,
+    baseRevisionId,
+    resultRevisionId: result.ok ? result.page.revisionId : null,
+    ops,
+    status: result.ok ? 200 : result.status,
+    errorCode: result.ok ? null : result.error,
+  });
   return NextResponse.json(result, { status: result.ok ? 200 : result.status });
 }

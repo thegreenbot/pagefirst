@@ -40,6 +40,7 @@ The server reads these variables:
 - `KV_REST_API_URL`, `KV_REST_API_TOKEN` — optional Upstash Redis for shared rate limits (set by the Vercel Upstash integration).
 - `TOKEN_ENCRYPTION_KEY` — 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts stored Google refresh tokens.
 - `PUBLISH_ALLOWLIST` — Google emails (comma- or space-separated) allowed to publish a public copy to Cloudflare. Unset means nobody can; previews still work. This is a stopgap until each site gets its own publish target (#85).
+- `AUDIT_ADMIN_EMAILS` — optional Google emails (comma- or space-separated) that may export every account's audit events from `GET /api/audit?from=…&to=…`. Everyone signed in can read their own events.
 - `APP_URL` — optional public origin with no trailing slash. When it is unset, a request whose host ends with `.vercel.app` uses `https://page-first.apps.grok.bot`.
 
 Set them in the server environment. This repository does not include values for them.

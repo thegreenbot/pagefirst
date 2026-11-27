@@ -56,7 +56,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 | OAuth code interception or login CSRF | `state` and S256 PKCE, both cleared after use; redirect URI fixed by `APP_URL` | None known | — |
 | Token leaks into logs or error bodies | Shared `lib/log.ts` redaction (known secrets plus Google token shapes); HTTP tests assert no token in responses, cookies or database rows | — | #16 (done) |
 | Acting on a Doc the user may not edit | Every call uses the user's own token; Google's 403 is the answer | None | — |
-| No record of who changed which Doc | None | No audit log | #17, #10 |
+| No record of who changed which Doc | Append-only `audit_events` in Postgres: sign-in, sign-out, revoke, create, commit, publish, upload and rate-limit denials, with revisions and op kinds but no Doc text, tokens or raw IPs. A trigger refuses UPDATE, DELETE and TRUNCATE; only the retention prune (400 days) may delete. `GET /api/audit` shows an account its own events and lets `AUDIT_ADMIN_EMAILS` export a range | Cross-site refusals happen at the edge, so they are log lines, not rows. The app's database role can still drop the trigger; a separate owner role would close that | #17 |
 | Temporary "anyone with the link" Drive share used by `insertInlineImage` stays public if the process dies | Image insert into Docs is not built yet, so no share is created today | When built: remove the permission in `finally`, persist pending shares and sweep them, audit create and remove, or avoid the public share with a short-lived signed URL | #20, #10 |
 
 ### App ↔ Cloudflare
