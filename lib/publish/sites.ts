@@ -49,7 +49,7 @@ export async function siteHostname(siteId: string): Promise<string> {
 export type SitePublish = {
   html: string;
   csp: string;
-  assets: { path: string; contentType: string; body: string }[];
+  assets: { path: string; contentType: string; body: string | Uint8Array }[];
 };
 
 /** Writes one page (and its assets) to the owner's site and returns the page's public URL. */

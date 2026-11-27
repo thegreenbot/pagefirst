@@ -141,7 +141,7 @@ describe("preview assets", () => {
     const { readPreviewAsset, savePreviewAssets } = await import("@/lib/publish/preview");
     savePreviewAssets([
       { path: "assets/pf/0123456789abcdef.css", contentType: "text/css; charset=utf-8", body: ".a{b:c}" },
-      { path: "assets/pf/ffffffffffffffff.css", contentType: "text/css; charset=utf-8", body: "x".repeat(200_001) },
+      { path: "assets/pf/ffffffffffffffff.css", contentType: "text/css; charset=utf-8", body: "x".repeat(1_000_001) },
     ]);
     assert.equal(readPreviewAsset("assets/pf/0123456789abcdef.css")?.body, ".a{b:c}");
     assert.equal(readPreviewAsset("assets/pf/ffffffffffffffff.css"), null);

@@ -1,6 +1,6 @@
 import type { RenderContext } from "@/lib/site/theme-config";
 import { nodeOptimizer, publishedCsp } from "@/lib/theme/csp";
-import { renderPage, type RenderMode, type RenderResult } from "@/lib/theme/engine";
+import { renderPage, type ImageRendition, type RenderMode, type RenderResult } from "@/lib/theme/engine";
 import { getDefaultTheme } from "@/lib/theme/package";
 import { withPresentation } from "@/lib/theme/presentation";
 import type { Page } from "./types";
@@ -10,10 +10,15 @@ import type { Page } from "./types";
  * styles come from the site's locked theme package; template, section styles,
  * settings and tokens come from the app's store (#56), never from the Doc.
  */
-export function renderPageHtml(page: Page, mode: RenderMode = "publish", context?: RenderContext): RenderResult {
+export function renderPageHtml(
+  page: Page,
+  mode: RenderMode = "publish",
+  context?: RenderContext,
+  images?: Record<string, ImageRendition>,
+): RenderResult {
   const theme = context?.theme ?? getDefaultTheme();
   const applied = withPresentation(page, context?.config ?? null, context?.presentation ?? null);
-  return renderPage(applied.page, theme, { ...applied.options, mode, csp: publishedCsp, optimizer: nodeOptimizer });
+  return renderPage(applied.page, theme, { ...applied.options, mode, csp: publishedCsp, optimizer: nodeOptimizer, images });
 }
 
 export function renderPublishHtml(page: Page): string {

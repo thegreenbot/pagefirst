@@ -33,6 +33,14 @@ test("sample mode: open a page, edit, commit and publish a preview", async ({ pa
   await snapshot.click();
   await expect(page).toHaveURL(/\/published\/about$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
+
+  // Images are published as renditions with dimensions, never from /api/media (#61).
+  const image = page.getByRole("img", { name: "Studio" });
+  await expect(image).toHaveAttribute("src", /^\/assets\/img\/[a-f0-9]{16}-\d+\.webp$/);
+  await expect(image).toHaveAttribute("width", "640");
+  await expect(image).toHaveAttribute("height", "360");
+  await expect.poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)).toBeGreaterThan(0);
+  expect(await page.content()).not.toContain("/api/media");
 });
 
 test("the preview is sandboxed: theme code cannot reach the editor", async ({ page }) => {

@@ -172,4 +172,21 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE audit_events ADD COLUMN site_id text, ADD COLUMN page_path text;
     `,
   },
+  {
+    id: 7,
+    name: "image renditions per site",
+    sql: `
+      -- Image renditions already uploaded to a site (#61), keyed by a hash of the
+      -- source bytes, so republishing an unchanged image encodes and uploads nothing.
+      CREATE TABLE image_renditions (
+        site_id     text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        source_hash text NOT NULL,
+        width       integer NOT NULL CHECK (width > 0),
+        height      integer NOT NULL CHECK (height > 0),
+        widths      integer[] NOT NULL,
+        created_at  timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (site_id, source_hash)
+      );
+    `,
+  },
 ];

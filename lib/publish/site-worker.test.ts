@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { candidateKeys, DEFAULT_SITE_CSP, handleSiteRequest, type R2BucketLike, type R2ObjectBody } from "./site-worker";
+import { cacheControl, candidateKeys, DEFAULT_SITE_CSP, handleSiteRequest, type R2BucketLike, type R2ObjectBody } from "./site-worker";
 
 function bucket(files: Record<string, { body: string; type?: string; csp?: string }>): R2BucketLike & { reads: string[] } {
   const reads: string[] = [];
@@ -77,6 +77,13 @@ describe("site worker", () => {
     assert.equal(await head.text(), "");
     const cached = await get(env, "https://alice.sites.example/about", { headers: { "if-none-match": '"etag-sites/alice/about.html"' } });
     assert.equal(cached.status, 304);
+  });
+
+  test("content-addressed assets are immutable; pages revalidate quickly", () => {
+    assert.equal(cacheControl("about.html"), "public, max-age=60");
+    assert.equal(cacheControl("assets/img/0123456789abcdef-480.avif"), "public, max-age=31536000, immutable");
+    assert.equal(cacheControl("assets/pf/0123456789abcdef.css"), "public, max-age=31536000, immutable");
+    assert.equal(cacheControl("favicon.ico"), "public, max-age=3600");
   });
 
   test("maps paths to keys", () => {

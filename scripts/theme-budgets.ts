@@ -11,10 +11,10 @@
 import { createServer, type Server } from "node:http";
 import { readdirSync } from "node:fs";
 import path from "node:path";
-import { deflateSync } from "node:zlib";
 import { budgetsFor, checkBudgets, measure } from "@/lib/theme/budgets";
 import { nodeOptimizer, publishedCsp } from "@/lib/theme/csp";
-import { renderPage, type RenderResult } from "@/lib/theme/engine";
+import { planImages, encodeMissing } from "@/lib/publish/images";
+import { renderPage, type PublishAsset, type RenderResult } from "@/lib/theme/engine";
 import { themeFixtures } from "@/lib/theme/fixtures";
 import { loadThemeFromDir } from "@/lib/theme/package";
 
@@ -26,9 +26,20 @@ export const LIGHTHOUSE_BUDGETS = {
   tbtMs: 50,
 };
 
-type Rendered = { theme: string; fixture: string; result: RenderResult; budgets: ReturnType<typeof budgetsFor> };
+type Rendered = { theme: string; fixture: string; result: RenderResult; images: PublishAsset[]; budgets: ReturnType<typeof budgetsFor> };
 
-function renderAll(): Rendered[] {
+/** Fixture images are 1600×1000 photos-in-size; each id gets distinct bytes. */
+async function fixtureImage(id: string) {
+  const { default: sharp } = await import("sharp");
+  let hue = 0;
+  for (const ch of id) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
+  const bytes = await sharp({ create: { width: 1600, height: 1000, channels: 3, background: `hsl(${hue}, 40%, 55%)` } })
+    .jpeg()
+    .toBuffer();
+  return { mime: "image/jpeg", bytes: new Uint8Array(bytes) };
+}
+
+async function renderAll(): Promise<Rendered[]> {
   const root = path.join(process.cwd(), "themes");
   const out: Rendered[] = [];
   for (const dir of readdirSync(root, { withFileTypes: true })) {
@@ -36,8 +47,11 @@ function renderAll(): Rendered[] {
     const theme = loadThemeFromDir(path.join(root, dir.name));
     const budgets = budgetsFor(theme.manifest);
     for (const fixture of themeFixtures(theme.manifest)) {
-      const result = renderPage(fixture.page, theme, { mode: "publish", csp: publishedCsp, optimizer: nodeOptimizer });
-      out.push({ theme: theme.manifest.name, fixture: fixture.name, result, budgets });
+      // Images go through the publish pipeline (#61), as on a real site.
+      const plan = await planImages(fixture.page, fixtureImage);
+      const result = renderPage(fixture.page, theme, { mode: "publish", csp: publishedCsp, optimizer: nodeOptimizer, images: plan.images });
+      const { assets: images } = await encodeMissing(plan.planned, () => false);
+      out.push({ theme: theme.manifest.name, fixture: fixture.name, result, images, budgets });
     }
   }
   return out;
@@ -58,42 +72,7 @@ function byteBudgets(pages: Rendered[]): string[] {
   return failures;
 }
 
-/** A solid-colour PNG, so image fixtures have real pixels to paint. */
-function png(width: number, height: number): Buffer {
-  const crcTable = Array.from({ length: 256 }, (_, n) => {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    return c >>> 0;
-  });
-  const crc = (buf: Buffer) => {
-    let c = 0xffffffff;
-    for (const byte of buf) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8);
-    return (c ^ 0xffffffff) >>> 0;
-  };
-  const chunk = (type: string, data: Buffer) => {
-    const body = Buffer.concat([Buffer.from(type), data]);
-    const out = Buffer.alloc(body.length + 8);
-    out.writeUInt32BE(data.length, 0);
-    body.copy(out, 4);
-    out.writeUInt32BE(crc(body), body.length + 4);
-    return out;
-  };
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(width, 0);
-  header.writeUInt32BE(height, 4);
-  header.set([8, 2, 0, 0, 0], 8);
-  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, 0x7a)]);
-  const raw = Buffer.concat(Array.from({ length: height }, () => row));
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", header),
-    chunk("IDAT", deflateSync(raw)),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
-}
-
 function serve(pages: Rendered[]): Promise<{ server: Server; origin: string }> {
-  const image = png(1200, 800);
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     const page = pages.find(({ theme, fixture }) => url.pathname === `/${encodeURIComponent(theme)}/${fixture}`);
@@ -102,13 +81,8 @@ function serve(pages: Rendered[]): Promise<{ server: Server; origin: string }> {
       response.end(page.result.html);
       return;
     }
-    if (url.pathname.startsWith("/api/media/")) {
-      response.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=31536000" });
-      response.end(image);
-      return;
-    }
-    for (const { result } of pages) {
-      const asset = result.assets.find((candidate) => `/${candidate.path}` === url.pathname);
+    for (const { result, images } of pages) {
+      const asset = [...result.assets, ...images].find((candidate) => `/${candidate.path}` === url.pathname);
       if (asset) {
         response.writeHead(200, { "Content-Type": asset.contentType, "Cache-Control": "public, max-age=31536000, immutable" });
         response.end(asset.body);
@@ -183,7 +157,7 @@ async function lighthouseBudgets(pages: Rendered[], runs: number): Promise<strin
 }
 
 async function main() {
-  const pages = renderAll();
+  const pages = await renderAll();
   const failures = byteBudgets(pages);
   if (process.argv.includes("--lighthouse")) {
     const runs = Number(process.env.LIGHTHOUSE_RUNS ?? 3);

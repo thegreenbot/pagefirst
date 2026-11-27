@@ -109,6 +109,10 @@ On a published page, `{% island %}…{% endisland %}` in that block's template b
 
 The editor preview never runs block JS: it renders the island's body only. A block with JS whose template has no `{% island %}` is reported and its module is not shipped.
 
+### 10. Images (#61)
+
+Images are prepared at publish time (Will's decision: simpler over faster bulk publishes). Each image's bytes are copied out of the media store into AVIF and WebP renditions at 480, 960, 1440 and 1920 px wide, never wider than the source. They are named `/assets/img/<hash>-<width>.<ext>`, where the hash comes from the source bytes. A published image renders as `<picture>` with an AVIF `<source>` and a WebP `<img>` carrying `srcset`, `sizes`, `width` and `height`, so nothing shifts when it loads. Themes should keep `height: auto` on images. The first image in the first section gets `fetchpriority="high"`; the rest get `loading="lazy"` and `decoding="async"`. An image that cannot be prepared is left out with a warning, so a published page never points at `/api/media` or Drive. Each site records which renditions it already has (`image_renditions`), and an unchanged image is never encoded or uploaded twice. The editor keeps using `/api/media`.
+
 ## Consequences
 
 - `render.ts` keeps only orchestration; markup and styles move to `themes/default` (#54).
