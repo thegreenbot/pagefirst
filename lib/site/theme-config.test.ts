@@ -10,6 +10,7 @@ import { withPresentation } from "@/lib/theme/presentation";
 import {
   ConfigError,
   lockedPackage,
+  orphans,
   readPresentation,
   readSiteTheme,
   renderContextFor,
@@ -52,6 +53,20 @@ describe("theme config validation", () => {
       null,
     ];
     for (const input of bad) assert.throws(() => validateUpdate(input, manifest), ConfigError, JSON.stringify(input));
+  });
+
+  test("with the theme loaded, only its declared tokens are accepted", () => {
+    const theme = getDefaultTheme();
+    assert.equal(validateUpdate({ tokens: { "color-brand": "#000" } }, manifest, theme).tokens?.["color-brand"], "#000");
+    assert.throws(() => validateUpdate({ tokens: { "color-neon": "#0f0" } }, manifest, theme), /not a token/);
+  });
+
+  test("reports stored tokens and settings the theme does not declare", () => {
+    const theme = getDefaultTheme();
+    assert.deepEqual(orphans({ tokens: { "color-brand": "#000", gone: "1px" }, settings: { old: true } }, theme), {
+      tokens: ["gone"],
+      settings: ["old"],
+    });
   });
 
   test("presentation must use the theme's templates and section styles", () => {

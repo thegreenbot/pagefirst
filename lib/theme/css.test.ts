@@ -94,7 +94,7 @@ describe("page CSS", () => {
   test("a page using two blocks ships only those two blocks' CSS, inline", () => {
     const t = theme({ hero: ".hero{a:b}", cards: ".cards{c:d}", quote: ".quote{e:f}" });
     const { html, assets, csp } = renderPage(page([[block("h", "hero")], [block("c", "cards")]]), t, options);
-    assert.ok(html.includes("<style>body{margin:0}.hero{a:b}.cards{c:d}</style>"));
+    assert.ok(html.includes("<style>@layer theme{body{margin:0}}@layer blocks{.hero{a:b}.cards{c:d}}</style>"));
     assert.doesNotMatch(html, /\.quote/);
     assert.deepEqual(assets, []);
     assert.doesNotMatch(csp, /style-src 'self'/);
@@ -110,11 +110,11 @@ describe("page CSS", () => {
     const t = theme({ hero: ".hero{a:b}", cards: bulky("cards", 1500), quote: ".quote{e:f}" });
     const { html, assets, csp } = renderPage(page([[block("h", "hero")], [block("c", "cards"), block("q", "quote")]]), t, options);
     const inline = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? "";
-    assert.equal(inline, "body{margin:0}.hero{a:b}");
+    assert.equal(inline, "@layer theme{body{margin:0}}@layer blocks{.hero{a:b}}");
     assert.equal(assets.length, 1);
     assert.match(assets[0].path, /^assets\/pf\/[a-f0-9]{16}\.css$/);
-    assert.ok(assets[0].body.startsWith(".cards .r0"));
-    assert.ok(assets[0].body.endsWith(".quote{e:f}"));
+    assert.ok(assets[0].body.startsWith("@layer blocks{.cards .r0"));
+    assert.ok(assets[0].body.endsWith(".quote{e:f}}"));
     assert.ok(gzipSync(assets[0].body).length > 10 * 1024);
     // Loaded at the end of <body>, so it never blocks the first paint.
     assert.ok(html.includes(`<link rel="stylesheet" href="/${assets[0].path}">\n</body>`));
