@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auditRequest } from "@/lib/audit-request";
-import { createApiKey, KeyInputError, listApiKeys } from "@/lib/auth/api-keys";
+import { issueBearer, KeyInputError, listApiKeys } from "@/lib/auth/api-keys";
 import { readTextCapped } from "@/lib/http/body";
 import { getSessionSub } from "@/lib/session";
 
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   try {
-    const { key, record } = await createApiKey(sub, body);
+    const { key, record } = await issueBearer(sub, body);
     await auditRequest(request, { event: "api_key.created", outcome: "ok", status: 201, actorKey: record.prefix });
     return NextResponse.json({ key, record }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {

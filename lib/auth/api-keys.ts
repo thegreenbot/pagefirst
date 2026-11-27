@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { hashSecret } from "@/lib/crypto/hash";
+import { lookupDigest } from "@/lib/crypto/hash";
 import { query } from "@/lib/db/client";
 import { SCOPES, type Scope } from "@/lib/service/context";
 
@@ -61,8 +61,8 @@ function record(row: Row): ApiKeyRecord {
   };
 }
 
-export function hashApiKey(key: string): string {
-  return hashSecret(key);
+export function hashApiKey(presented: string): string {
+  return lookupDigest(presented);
 }
 
 /** True when the string looks like one of our keys, so other bearer tokens are not looked up. */
@@ -109,7 +109,7 @@ export function parseNewKey(input: unknown): { name: string; scopes: Scope[]; si
 }
 
 /** Creates a key. The returned `key` is the only time it can be read. */
-export async function createApiKey(sub: string, input: unknown): Promise<{ key: string; record: ApiKeyRecord }> {
+export async function issueBearer(sub: string, input: unknown): Promise<{ key: string; record: ApiKeyRecord }> {
   const { name, scopes, siteFolders, expiresInDays } = parseNewKey(input);
   const active = await query<{ n: string }>(
     "SELECT count(*) AS n FROM api_keys WHERE sub = $1 AND revoked_at IS NULL AND expires_at > now()",
