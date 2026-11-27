@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { callerKey, checkRateLimit, requireGoogleWriter, sameOrigin, tooManyRequests } from "@/lib/guard";
 import { googleConfigured } from "@/lib/google/config";
+import { fetchGoogleIdentity } from "@/lib/google/userinfo";
+import { mayPublishPublicly } from "@/lib/publish/allowlist";
 import { isSafeId, type PublishResult } from "@/lib/page/types";
 import { renderPublishHtml } from "@/lib/page/render";
 import { uploadToCloudflare } from "@/lib/publish/cloudflare";
@@ -61,6 +63,12 @@ export async function POST(
 
   if (!writer.token) {
     body.warning = "Sign in with Google before publishing a public copy.";
+    return NextResponse.json(body);
+  }
+
+  const identity = await fetchGoogleIdentity(writer.token);
+  if (!mayPublishPublicly(identity?.email ?? null)) {
+    body.warning = "Public publishing is limited to approved accounts for now. Your preview is ready.";
     return NextResponse.json(body);
   }
 

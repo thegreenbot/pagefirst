@@ -36,6 +36,7 @@ The server reads these variables:
 - `GOOGLE_CLIENT_SECRET`
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
+- `PUBLISH_ALLOWLIST` — Google emails (comma- or space-separated) allowed to publish a public copy to Cloudflare. Unset means nobody can; previews still work. This is a stopgap until each site gets its own publish target (#85).
 - `APP_URL` — optional public origin with no trailing slash. When it is unset, a request whose host ends with `.vercel.app` uses `https://page-first.apps.grok.bot`.
 
 Set them in the server environment. This repository does not include values for them.

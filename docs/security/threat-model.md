@@ -63,7 +63,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 
 | Threat | Current control | Gap | Issue |
 | --- | --- | --- | --- |
-| One user overwrites or removes another user's published pages | Public publish requires a Google session; page paths are slugged | Every user publishes to one shared Pages project, and each deployment holds only the page being published, so any publish replaces the whole site | #85 |
+| One user overwrites or removes another user's published pages | Public publish requires a Google session and an email on `PUBLISH_ALLOWLIST`; each deploy carries the site's other pages forward | All allowed publishers still share one Pages project, and concurrent publishes can race | #85 |
 | Cloudflare token misuse | Token only in the deployment environment; error bodies are discarded | Token scope is not documented or enforced | #85 |
 | Script in published pages | Text is escaped at render | No CSP for published pages | #19 |
 | Published preview lost or served by the wrong instance | — | Previews live in process memory | #18 |

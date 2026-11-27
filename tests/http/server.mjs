@@ -19,8 +19,8 @@ function freePort() {
   });
 }
 
-/** @param {{ google?: boolean }} options google: true sets OAuth credentials, so the app leaves sample mode. */
-export async function startApp({ google = false } = {}) {
+/** @param {{ google?: boolean, env?: Record<string, string> }} options google: true sets OAuth credentials, so the app leaves sample mode; env overrides variables. */
+export async function startApp({ google = false, env: extraEnv = {} } = {}) {
   const port = await freePort();
   const env = {
     ...process.env,
@@ -31,8 +31,10 @@ export async function startApp({ google = false } = {}) {
     GOOGLE_CLIENT_SECRET: google ? "test-client-secret" : "",
     CLOUDFLARE_API_TOKEN: "",
     CLOUDFLARE_ACCOUNT_ID: "",
+    PUBLISH_ALLOWLIST: "author@example.com",
     // Production sets APP_URL; without it `next start` reports a localhost origin.
     APP_URL: `http://127.0.0.1:${port}`,
+    ...extraEnv,
   };
   const child = spawn(
     process.execPath,

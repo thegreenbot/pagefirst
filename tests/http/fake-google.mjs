@@ -5,6 +5,7 @@
 // Behaviour is keyed on inputs, so tests stay independent:
 // - token endpoint: code "good" succeeds, "fail" returns 400, "empty" returns no token.
 // - Docs: "missing" is 404, "boom" is 500, any other id is a document at revision "rev-2".
+// - userinfo: sub "fake-sub", verified email "Author@Example.com".
 // - Every Docs or Drive call must carry "Bearer fake-token", or it gets 401.
 
 export const FAKE_TOKEN = "fake-token";
@@ -46,6 +47,11 @@ globalThis.fetch = async function fakeGoogleFetch(input, init) {
     if (code === "good") return json({ access_token: FAKE_TOKEN });
     if (code === "empty") return json({});
     return json({ error: "invalid_grant" }, 400);
+  }
+
+  if (url.host === "openidconnect.googleapis.com" && url.pathname === "/v1/userinfo") {
+    if (bearer(init, input) !== `Bearer ${FAKE_TOKEN}`) return json({ error: "unauthenticated" }, 401);
+    return json({ sub: "fake-sub", email: "Author@Example.com", email_verified: true });
   }
 
   if (url.host === "docs.googleapis.com" || url.host === "www.googleapis.com") {
