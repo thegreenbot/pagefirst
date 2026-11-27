@@ -6,7 +6,7 @@ import { mayPublishPublicly } from "@/lib/publish/allowlist";
 import { isSafeId, type PublishResult } from "@/lib/page/types";
 import { renderPageHtml } from "@/lib/page/render";
 import { uploadToCloudflare } from "@/lib/publish/cloudflare";
-import { savePreview } from "@/lib/publish/preview";
+import { savePreview, savePreviewAssets } from "@/lib/publish/preview";
 import { getPage } from "@/lib/store";
 import { auditRequest } from "@/lib/audit-request";
 
@@ -52,7 +52,8 @@ export async function POST(
     return NextResponse.json({ error: "Page not found" }, { status: 404 });
   }
 
-  const { html, csp } = renderPageHtml(payload.page, "publish");
+  const { html, csp, assets } = renderPageHtml(payload.page, "publish");
+  savePreviewAssets(assets);
   savePreview(fileId, html, csp);
 
   const body: PublishResponse = {

@@ -1,4 +1,4 @@
-import { publishedCsp } from "@/lib/theme/csp";
+import { nodeOptimizer, publishedCsp } from "@/lib/theme/csp";
 import { renderPage, type RenderMode, type RenderResult } from "@/lib/theme/engine";
 import { getDefaultTheme } from "@/lib/theme/package";
 import type { Page } from "./types";
@@ -9,7 +9,7 @@ import type { Page } from "./types";
  * Until site theme config lands (#56), every page uses @pagefirst/default.
  */
 export function renderPageHtml(page: Page, mode: RenderMode = "publish"): RenderResult {
-  return renderPage(page, getDefaultTheme(), { mode, csp: publishedCsp });
+  return renderPage(page, getDefaultTheme(), { mode, csp: publishedCsp, optimizer: nodeOptimizer });
 }
 
 export function renderPublishHtml(page: Page): string {

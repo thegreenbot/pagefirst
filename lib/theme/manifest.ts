@@ -1,6 +1,6 @@
 /**
  * The theme.json manifest. The JSON Schema in theme.schema.json is the source of
- * truth (see docs/adr/0001-theme-package-contract.md); tests validate every
+ * truth (see docs/adr/0002-theme-package-contract.md); tests validate every
  * first-party theme against it. This module checks what the engine relies on.
  */
 
