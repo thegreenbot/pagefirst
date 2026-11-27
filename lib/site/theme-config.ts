@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { databaseConfigured, query, transaction } from "@/lib/db/client";
-import { ensurePersonalOrg } from "@/lib/tenant/orgs";
+import { ensurePersonalOrg, requireFeature, siteAllows } from "@/lib/tenant/orgs";
 import type { ThemeManifest } from "@/lib/theme/manifest";
 import type { ThemePackage } from "@/lib/theme/package";
 import { orphanTokens, tokenDefs } from "@/lib/theme/tokens";
@@ -121,7 +121,8 @@ export function validateUpdate(input: unknown, manifest: ThemeManifest, theme?: 
     if (typeof input.customCss !== "string" || input.customCss.length > LIMITS.customCss) {
       throw new ConfigError("customCss", `must be text of at most ${LIMITS.customCss} characters`);
     }
-    if (/<\/?style/i.test(input.customCss)) throw new ConfigError("customCss", "cannot contain a style tag");
+    if (input.customCss.includes("<")) throw new ConfigError("customCss", "cannot contain '<', so it cannot close the style element");
+    if (/@import/i.test(input.customCss)) throw new ConfigError("customCss", "cannot use @import; inline the rules instead");
     out.customCss = input.customCss;
   }
   if (input.templateOverrides !== undefined) {
@@ -290,7 +291,13 @@ export async function readSiteTheme(siteId: string): Promise<SiteThemeConfig> {
  * version; anything else keeps the lock, so publishes render the same bytes.
  */
 export async function updateSiteTheme(siteId: string, input: unknown): Promise<SiteThemeConfig> {
-  const next = await resolveUpdate(await readSiteTheme(siteId), input);
+  const current = await readSiteTheme(siteId);
+  const next = await resolveUpdate(current, input);
+  // Changing either needs a paid plan on the hosted service; clearing never does.
+  if (next.customCss !== current.customCss && next.customCss !== "") await requireFeature(siteId, "customCss");
+  if (JSON.stringify(next.templateOverrides) !== JSON.stringify(current.templateOverrides) && Object.keys(next.templateOverrides).length) {
+    await requireFeature(siteId, "templateOverrides");
+  }
   await saveSiteTheme(siteId, next);
   return next;
 }
@@ -384,7 +391,9 @@ export async function renderContextFor(sub: string | null, fileId: string): Prom
     return { theme: bundledTheme(DEFAULT_THEME_NAME)!, config: null, presentation: null };
   }
   const siteId = await siteForOwner(sub);
-  const config = await readSiteTheme(siteId);
+  const stored = await readSiteTheme(siteId);
+  // Stored custom CSS stops rendering when the plan no longer includes it (downgrade); it is kept, not deleted.
+  const config = stored.customCss && !(await siteAllows(siteId, "customCss")) ? { ...stored, customCss: "" } : stored;
   const [theme, presentation] = await Promise.all([lockedPackage(config.lock.integrity), readPresentation(siteId, fileId)]);
   return { theme, config, presentation };
 }

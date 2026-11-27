@@ -1,6 +1,8 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { closeDatabase, query } from "@/lib/db/client";
+import { PlanError } from "@/lib/tenant/plans";
+import { setPlan, personalOrgId } from "@/lib/tenant/orgs";
 import { resetTestDatabase, testDatabaseUrl } from "@/lib/db/test-db";
 import { aboutFixture } from "@/lib/page/fixture";
 import { renderPageHtml } from "@/lib/page/render";
@@ -45,6 +47,8 @@ describe("theme config validation", () => {
       { tokens: { Brand: "red" } },
       { settings: { unknown: true } },
       { customCss: "</style><script>" },
+      { customCss: "a{} <!-- x" },
+      { customCss: '@import url("https://x.example/a.css");' },
       { templateOverrides: { "../secret": "x" } },
       { locks: ["everything"] },
       { versionRange: ">=1" },
@@ -171,5 +175,25 @@ describe("site theme store", { skip: url ? false : "set TEST_DATABASE_URL to run
     const context = await renderContextFor(null, "about");
     assert.equal(context.config, null);
     assert.equal(context.theme.manifest.name, "@pagefirst/default");
+  });
+
+  test("custom CSS needs a paid plan when hosted, can always be cleared, and stops rendering after a downgrade", async () => {
+    const sub = "owner-css";
+    const site = await siteForOwner(sub);
+    process.env.PAGEFIRST_EDITION = "hosted";
+    try {
+      await assert.rejects(updateSiteTheme(site, { customCss: ".x{color:red}" }), PlanError);
+      assert.equal((await readSiteTheme(site)).customCss, "");
+      await setPlan(personalOrgId(sub), "pro");
+      await updateSiteTheme(site, { customCss: ".x{color:red}" });
+      assert.equal((await renderContextFor(sub, "f")).config?.customCss, ".x{color:red}");
+      await setPlan(personalOrgId(sub), "free");
+      assert.equal((await renderContextFor(sub, "f")).config?.customCss, "");
+      assert.equal((await readSiteTheme(site)).customCss, ".x{color:red}");
+      await updateSiteTheme(site, { customCss: "" });
+      assert.equal((await readSiteTheme(site)).customCss, "");
+    } finally {
+      delete process.env.PAGEFIRST_EDITION;
+    }
   });
 });
