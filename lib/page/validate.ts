@@ -3,6 +3,7 @@
  * and MCP tools, validate untrusted input here before it reaches `applyOps` or
  * Google, so the contract in `types.ts` has one enforced shape.
  */
+import { PRESENTATION_KEYS } from "./parse";
 import { isSafeId, type Block, type Cell, type Op, type Prose, type ProseTag } from "./types";
 
 export const LIMITS = {
@@ -172,6 +173,9 @@ function op(value: unknown, path: string): Op {
       onlyKeys(raw, path, ["op", "key", "value"]);
       if (typeof raw.key !== "string" || !METADATA_KEY.test(raw.key)) {
         throw new Invalid(at("key"), "must be a metadata key of letters, digits, spaces, _ or -");
+      }
+      if (PRESENTATION_KEYS.has(raw.key.toLowerCase())) {
+        throw new Invalid(at("key"), "is set in the editor's theme settings, not in the Doc");
       }
       return { op: "setMetadata", key: raw.key, value: string(raw.value, at("value"), LIMITS.maxMetadataValueLength) };
     }

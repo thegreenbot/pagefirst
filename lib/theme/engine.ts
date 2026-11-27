@@ -16,6 +16,8 @@ export type RenderOptions = {
   template?: string;
   site?: { name?: string; url?: string; lang?: string };
   settings?: Record<string, unknown>;
+  /** The site's token values, over the theme's defaults (#56, #57). */
+  tokens?: Record<string, unknown>;
   /**
    * Builds the page's CSP from the exact <style> text, which is written into a
    * <meta> tag. Server renders pass publishedCsp (lib/theme/csp.ts); the engine
@@ -396,7 +398,7 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
     theme: {
       name: manifest.name,
       version: manifest.version,
-      tokens: theme.tokens,
+      tokens: { ...theme.tokens, ...(options.tokens ?? {}) },
       settings: { ...settingDefaults(theme), ...(options.settings ?? {}) },
     },
     mode,
