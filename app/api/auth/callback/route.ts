@@ -4,7 +4,7 @@ import { oauthOrigin } from "@/lib/google/origin";
 import { exchangeCode } from "@/lib/google/oauth";
 import { fetchGoogleIdentity } from "@/lib/google/userinfo";
 import { auditRequest } from "@/lib/audit-request";
-import { clearPkce, getPkce, serverSessionsEnabled, setAccessToken, setSessionCookie } from "@/lib/session";
+import { clearPkce, getPkce, serverSessionsEnabled, setAccessToken, setSessionCookie, takeReturnTo } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
   const origin = oauthOrigin(request);
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       await auditRequest(request, { event: "auth.sign_in", outcome: "ok", actorSub: null, status: 302 });
     }
     await clearPkce();
-    return NextResponse.redirect(new URL("/", origin));
+    return NextResponse.redirect(new URL((await takeReturnTo()) ?? "/", origin));
   } catch {
     return fail();
   }

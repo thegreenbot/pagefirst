@@ -20,11 +20,17 @@ import {
   siteAllows,
 } from "./orgs";
 import { PlanError } from "./plans";
+import { challengeFor } from "@/lib/oauth/protocol";
+import { exchangeCode, issueCode, registerClient, verifyAccessToken } from "@/lib/oauth/store";
+import { randomBytes } from "node:crypto";
+
+const verifier = randomBytes(32).toString("base64url");
 
 const url = testDatabaseUrl();
 
 describe("organizations", { skip: url ? false : "set TEST_DATABASE_URL to run Postgres tests" }, () => {
   before(async () => {
+    process.env.TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
     await resetTestDatabase(url!);
   });
   beforeEach(async () => {
@@ -108,7 +114,12 @@ describe("organizations", { skip: url ? false : "set TEST_DATABASE_URL to run Po
     await query(
       `INSERT INTO api_keys (sub, name, key_prefix, key_hash, scopes, expires_at) VALUES ('sub-b', 'k', 'pf_live_abcd', 'h', ARRAY['pages:read'], now() + interval '1 day')`,
     );
+    const client = await registerClient("c", ["https://client.example/cb"]);
+    const code = await issueCode({ clientId: client.clientId, sub: "sub-b", scopes: ["pages:read"], codeChallenge: challengeFor(verifier), redirectUri: "https://client.example/cb" });
+    const exchanged = await exchangeCode({ clientId: client.clientId, code, codeVerifier: verifier, redirectUri: "https://client.example/cb" });
+    assert.ok(exchanged.ok);
     await deleteOrganization(org.id);
+    if (exchanged.ok) assert.equal(await verifyAccessToken(exchanged.tokens.access_token), null, "OAuth tokens die with the tenant");
     assert.equal(await getOrganization(org.id), null);
     // sub-b belonged to no other organization, so their grant and keys go with it.
     assert.equal((await query("SELECT 1 FROM google_tokens WHERE sub = 'sub-b'")).length, 0);

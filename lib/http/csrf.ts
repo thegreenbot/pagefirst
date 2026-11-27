@@ -11,7 +11,10 @@ export const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  * called from GitHub Actions with an OIDC token, and the versioned API, which
  * authenticates with an API key or OAuth token and ignores cookies (#36).
  */
-const TOKEN_ROUTES = [/^\/api\/registry\/versions$/, /^\/api\/v1\//];
+const TOKEN_ROUTES = [/^\/api\/registry\/versions$/, /^\/api\/v1\//, /^\/api\/oauth\/register$/];
+
+/** Public OAuth endpoints that read no cookie and take form-encoded bodies. */
+const FORM_ROUTES = [/^\/api\/oauth\/(token|revoke)$/];
 
 /** Routes whose body, when there is one, must be JSON. */
 const JSON_ROUTES = [/^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/, /^\/api\/keys$/, ...TOKEN_ROUTES];
@@ -75,7 +78,7 @@ export type MutationCheck = { ok: true } | { ok: false; status: 403 | 415; error
  */
 export function checkMutation(request: Request, pathname: string): MutationCheck {
   if (SAFE_METHODS.has(request.method.toUpperCase())) return { ok: true };
-  const tokenRoute = TOKEN_ROUTES.some((pattern) => pattern.test(pathname));
+  const tokenRoute = TOKEN_ROUTES.some((pattern) => pattern.test(pathname)) || FORM_ROUTES.some((pattern) => pattern.test(pathname));
   if (!tokenRoute && !sameOrigin(request)) {
     return { ok: false, status: 403, error: "Cross-site request refused." };
   }

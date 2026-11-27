@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { PoolClient } from "pg";
 import { query, transaction } from "@/lib/db/client";
+import { revokeAllForUser } from "@/lib/oauth/store";
 import { PlanError, featureAllowed, isPlan, type Feature, type Plan } from "./plans";
 
 export const ROLES = ["owner", "admin", "editor", "viewer"] as const;
@@ -114,11 +115,11 @@ export async function requireFeature(siteId: string, feature: Feature): Promise<
 
 /**
  * Deletes an organization and everything it owns (cancellation). Google tokens
- * and API credentials of members who belong to no other organization are
+ * and API keys and OAuth tokens of members who belong to no other organization are
  * deleted too, so nothing can keep acting for a tenant that left.
  */
 export async function deleteOrganization(orgId: string): Promise<void> {
-  await transaction(async (client) => {
+  const orphans = await transaction(async (client) => {
     const { rows } = await client.query<{ sub: string }>(
       `SELECT m.sub FROM org_members m WHERE m.org_id = $1
        AND NOT EXISTS (SELECT 1 FROM org_members o WHERE o.sub = m.sub AND o.org_id <> $1)`,
@@ -130,5 +131,7 @@ export async function deleteOrganization(orgId: string): Promise<void> {
       await client.query("UPDATE api_keys SET revoked_at = now() WHERE sub = ANY($1) AND revoked_at IS NULL", [orphans]);
       await client.query("DELETE FROM google_tokens WHERE sub = ANY($1)", [orphans]);
     }
+    return orphans;
   });
+  for (const sub of orphans) await revokeAllForUser(sub);
 }
