@@ -4,10 +4,11 @@ import { googleConfigured } from "@/lib/google/config";
 import { fetchGoogleIdentity } from "@/lib/google/userinfo";
 import { mayPublishPublicly } from "@/lib/publish/allowlist";
 import { isSafeId, type PublishResult } from "@/lib/page/types";
-import { renderPublishHtml } from "@/lib/page/render";
+import { renderPageHtml } from "@/lib/page/render";
 import { uploadToCloudflare } from "@/lib/publish/cloudflare";
-import { savePreview } from "@/lib/publish/preview";
+import { savePreview, savePreviewAssets } from "@/lib/publish/preview";
 import { getPage } from "@/lib/store";
+import { renderContextFor } from "@/lib/site/theme-config";
 import { auditRequest } from "@/lib/audit-request";
 
 export const dynamic = "force-dynamic";
@@ -52,8 +53,12 @@ export async function POST(
     return NextResponse.json({ error: "Page not found" }, { status: 404 });
   }
 
-  const html = await renderPublishHtml(payload.page);
-  await savePreview(fileId, html, payload.page.revisionId);
+  // Sample pages have no site; signed-in pages render with their site's stored theme (#56).
+  const renderContext = await renderContextFor(payload.sample ? null : writer.sub, fileId);
+  const { html, csp, assets } = renderPageHtml(payload.page, "publish", renderContext);
+  // In memory for now; the R2 publish path (#63, #94) uploads these with the page.
+  savePreviewAssets(assets);
+  await savePreview(fileId, html, csp, payload.page.revisionId);
 
   const body: PublishResponse = {
     ok: true,

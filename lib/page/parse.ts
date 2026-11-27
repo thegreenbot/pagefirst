@@ -294,12 +294,16 @@ function parseBlock(doc: DocsDocument, el: DocsStructuralElement, specs: Spec[])
   return { kind: "block", id, name, options, rows: body };
 }
 
+/** Metadata keys that used to choose presentation. The app stores those now (#56). */
+export const PRESENTATION_KEYS = new Set(["template", "theme"]);
+
 function readMetadata(el: DocsStructuralElement, metadata: Record<string, string>): void {
   const rows = el.table?.rows ?? [];
   for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
     const cells = rows[rowIndex].tableCells ?? [];
     const key = structuralText(cells[0]?.content).trim();
-    if (!key) continue;
+    // Presentation lives in the app, not the Doc (#56): these rows are ignored.
+    if (!key || PRESENTATION_KEYS.has(key.toLowerCase())) continue;
     metadata[key] = structuralText(cells[1]?.content).trim();
   }
 }

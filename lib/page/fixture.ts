@@ -60,7 +60,6 @@ export function aboutFixture(): Page {
     metadata: {
       title: "About",
       description: "What the studio ships.",
-      template: "page",
     },
     sections: [
       {

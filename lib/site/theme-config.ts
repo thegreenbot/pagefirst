@@ -1,0 +1,342 @@
+import { randomBytes } from "node:crypto";
+import { databaseConfigured, query, transaction } from "@/lib/db/client";
+import type { ThemeManifest } from "@/lib/theme/manifest";
+import type { ThemePackage } from "@/lib/theme/package";
+import { bundledTheme, DEFAULT_THEME_NAME, isVersionRange, packageIntegrity, satisfies } from "@/lib/theme/registry";
+
+/**
+ * Each site's theme config and each page's presentation, stored by the app
+ * (#56). The Google Doc holds content only.
+ */
+
+export type SiteThemeConfig = {
+  themeName: string;
+  versionRange: string;
+  tokens: Record<string, string | number>;
+  settings: Record<string, string | number | boolean>;
+  customCss: string;
+  templateOverrides: Record<string, string>;
+  locks: string[];
+  /** The lockfile: the exact version and package bytes later publishes render with. */
+  lock: { version: string; integrity: string };
+};
+
+export type PagePresentation = {
+  template: string;
+  /** Section id to style names. */
+  sectionStyles: Record<string, string[]>;
+};
+
+export type ConfigUpdate = Partial<Omit<SiteThemeConfig, "lock">>;
+
+export class ConfigError extends Error {
+  constructor(
+    readonly path: string,
+    message: string,
+  ) {
+    super(`${path}: ${message}`);
+  }
+}
+
+const LIMITS = {
+  tokens: 100,
+  tokenValue: 200,
+  customCss: 50_000,
+  overrides: 50,
+  overrideBytes: 64_000,
+  locks: 20,
+  sectionStyles: 200,
+};
+
+const IDENTIFIER = /^[a-z][a-z0-9-]{0,39}$/;
+const TOKEN_KEY = /^[a-z][a-z0-9-]{0,63}$/;
+/** Token values become CSS custom properties (#57): no characters that end a declaration or a block. */
+const TOKEN_VALUE = /^[^;{}<>\\\u0000-\u001f]*$/;
+const OVERRIDE_PATH = /^(layouts\/[a-z][a-z0-9-]{0,39}|partials\/[a-z][a-z0-9-]{0,39}|blocks\/[a-z][a-z0-9-]{0,39}\/block)$/;
+const LOCKABLE = new Set(["theme", "tokens", "settings", "custom-css", "templates"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Checks an update against the theme it will apply to. Throws ConfigError. */
+export function validateUpdate(input: unknown, manifest: ThemeManifest): ConfigUpdate {
+  if (!isRecord(input)) throw new ConfigError("body", "must be an object");
+  const out: ConfigUpdate = {};
+  for (const key of Object.keys(input)) {
+    if (!["themeName", "versionRange", "tokens", "settings", "customCss", "templateOverrides", "locks"].includes(key)) {
+      throw new ConfigError(key, "is not a theme config field");
+    }
+  }
+  if (input.themeName !== undefined) {
+    if (typeof input.themeName !== "string" || !bundledTheme(input.themeName)) {
+      throw new ConfigError("themeName", "is not an available theme");
+    }
+    out.themeName = input.themeName;
+  }
+  if (input.versionRange !== undefined) {
+    if (!isVersionRange(input.versionRange)) throw new ConfigError("versionRange", "must be x.y.z, ^x.y.z or ~x.y.z");
+    out.versionRange = input.versionRange;
+  }
+  if (input.tokens !== undefined) {
+    if (!isRecord(input.tokens)) throw new ConfigError("tokens", "must be an object");
+    const entries = Object.entries(input.tokens);
+    if (entries.length > LIMITS.tokens) throw new ConfigError("tokens", `at most ${LIMITS.tokens}`);
+    out.tokens = {};
+    for (const [key, value] of entries) {
+      if (!TOKEN_KEY.test(key)) throw new ConfigError(`tokens.${key}`, "is not a valid token name");
+      if (typeof value === "number" && Number.isFinite(value)) out.tokens[key] = value;
+      else if (typeof value === "string" && value.length <= LIMITS.tokenValue && TOKEN_VALUE.test(value)) out.tokens[key] = value;
+      else throw new ConfigError(`tokens.${key}`, "must be a number or a short CSS value");
+    }
+  }
+  if (input.settings !== undefined) {
+    if (!isRecord(input.settings)) throw new ConfigError("settings", "must be an object");
+    const schema = new Map((manifest.settings ?? []).map((setting) => [setting.id, setting]));
+    out.settings = {};
+    for (const [key, value] of Object.entries(input.settings)) {
+      const setting = schema.get(key);
+      if (!setting) throw new ConfigError(`settings.${key}`, `is not a setting of ${manifest.name}`);
+      const ok =
+        setting.type === "boolean"
+          ? typeof value === "boolean"
+          : setting.type === "number"
+            ? typeof value === "number" && Number.isFinite(value)
+            : setting.type === "select"
+              ? typeof value === "string" && (setting.options ?? []).includes(value)
+              : setting.type === "color"
+                ? typeof value === "string" && /^#[0-9a-fA-F]{3,8}$/.test(value)
+                : typeof value === "string" && value.length <= 2_000;
+      if (!ok) throw new ConfigError(`settings.${key}`, `must be a valid ${setting.type}`);
+      out.settings[key] = value as string | number | boolean;
+    }
+  }
+  if (input.customCss !== undefined) {
+    if (typeof input.customCss !== "string" || input.customCss.length > LIMITS.customCss) {
+      throw new ConfigError("customCss", `must be text of at most ${LIMITS.customCss} characters`);
+    }
+    if (/<\/?style/i.test(input.customCss)) throw new ConfigError("customCss", "cannot contain a style tag");
+    out.customCss = input.customCss;
+  }
+  if (input.templateOverrides !== undefined) {
+    if (!isRecord(input.templateOverrides)) throw new ConfigError("templateOverrides", "must be an object");
+    const entries = Object.entries(input.templateOverrides);
+    if (entries.length > LIMITS.overrides) throw new ConfigError("templateOverrides", `at most ${LIMITS.overrides}`);
+    out.templateOverrides = {};
+    for (const [path, source] of entries) {
+      if (!OVERRIDE_PATH.test(path)) throw new ConfigError(`templateOverrides.${path}`, "is not a template path");
+      if (typeof source !== "string" || source.length > LIMITS.overrideBytes) {
+        throw new ConfigError(`templateOverrides.${path}`, "must be Liquid source of at most 64 KB");
+      }
+      out.templateOverrides[path] = source;
+    }
+  }
+  if (input.locks !== undefined) {
+    if (!Array.isArray(input.locks) || input.locks.length > LIMITS.locks) throw new ConfigError("locks", "must be a short list");
+    for (const lock of input.locks) {
+      if (typeof lock !== "string" || !LOCKABLE.has(lock)) throw new ConfigError("locks", `"${String(lock)}" cannot be locked`);
+    }
+    out.locks = [...new Set(input.locks as string[])];
+  }
+  return out;
+}
+
+export function validatePresentation(input: unknown, manifest: ThemeManifest): PagePresentation {
+  if (!isRecord(input)) throw new ConfigError("body", "must be an object");
+  const template = input.template ?? "page";
+  if (typeof template !== "string" || !Object.hasOwn(manifest.templates, template)) {
+    throw new ConfigError("template", `is not a template of ${manifest.name}`);
+  }
+  const styles = input.sectionStyles ?? {};
+  if (!isRecord(styles)) throw new ConfigError("sectionStyles", "must be an object");
+  const entries = Object.entries(styles);
+  if (entries.length > LIMITS.sectionStyles) throw new ConfigError("sectionStyles", "has too many sections");
+  const allowed = new Set(manifest.sectionStyles ?? []);
+  const sectionStyles: Record<string, string[]> = {};
+  for (const [sectionId, list] of entries) {
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(sectionId)) throw new ConfigError(`sectionStyles.${sectionId}`, "is not a section id");
+    if (!Array.isArray(list) || !list.every((style) => typeof style === "string" && IDENTIFIER.test(style) && allowed.has(style))) {
+      throw new ConfigError(`sectionStyles.${sectionId}`, `must list section styles of ${manifest.name}`);
+    }
+    if (list.length) sectionStyles[sectionId] = [...new Set(list as string[])];
+  }
+  return { template, sectionStyles };
+}
+
+function newSiteId(): string {
+  return `site_${randomBytes(9).toString("base64url")}`;
+}
+
+/** The owner's site, created on first use. One site per owner until multi-site lands. */
+export async function siteForOwner(sub: string): Promise<string> {
+  const existing = await query<{ id: string }>("SELECT id FROM sites WHERE owner_sub = $1 ORDER BY created_at, id LIMIT 1", [sub]);
+  if (existing[0]) return existing[0].id;
+  return transaction(async (client) => {
+    // Serialise first-site creation per owner so two tabs do not make two sites.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`site:${sub}`]);
+    const again = await client.query<{ id: string }>("SELECT id FROM sites WHERE owner_sub = $1 ORDER BY created_at, id LIMIT 1", [sub]);
+    if (again.rows[0]) return again.rows[0].id;
+    const id = newSiteId();
+    await client.query("INSERT INTO users (sub) VALUES ($1) ON CONFLICT (sub) DO NOTHING", [sub]);
+    await client.query("INSERT INTO sites (id, owner_sub) VALUES ($1, $2)", [id, sub]);
+    return id;
+  });
+}
+
+const packageCache = new Map<string, ThemePackage>();
+
+/** Stores a package snapshot by its integrity hash and returns the hash. */
+async function snapshot(theme: ThemePackage): Promise<string> {
+  const integrity = packageIntegrity(theme);
+  await query(
+    `INSERT INTO theme_packages (integrity, name, version, package) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (integrity) DO NOTHING`,
+    [integrity, theme.manifest.name, theme.manifest.version, JSON.stringify(theme)],
+  );
+  packageCache.set(integrity, theme);
+  return integrity;
+}
+
+/** The exact package a lock points at, from the snapshot table. */
+export async function lockedPackage(integrity: string): Promise<ThemePackage> {
+  const cached = packageCache.get(integrity);
+  if (cached) return cached;
+  const rows = await query<{ package: ThemePackage }>("SELECT package FROM theme_packages WHERE integrity = $1", [integrity]);
+  if (!rows[0]) throw new Error(`Theme package ${integrity} is missing`);
+  packageCache.set(integrity, rows[0].package);
+  return rows[0].package;
+}
+
+type ConfigRow = {
+  theme_name: string;
+  version_range: string;
+  tokens: Record<string, string | number>;
+  settings: Record<string, string | number | boolean>;
+  custom_css: string;
+  template_overrides: Record<string, string>;
+  locks: string[];
+  locked_version: string;
+  locked_integrity: string;
+};
+
+function fromRow(row: ConfigRow): SiteThemeConfig {
+  return {
+    themeName: row.theme_name,
+    versionRange: row.version_range,
+    tokens: row.tokens,
+    settings: row.settings,
+    customCss: row.custom_css,
+    templateOverrides: row.template_overrides,
+    locks: row.locks,
+    lock: { version: row.locked_version, integrity: row.locked_integrity },
+  };
+}
+
+/** Locks to the bundled theme of that name, which must satisfy the range. */
+async function lockTo(themeName: string, versionRange: string): Promise<{ version: string; integrity: string }> {
+  const theme = bundledTheme(themeName);
+  if (!theme) throw new ConfigError("themeName", "is not an available theme");
+  if (!satisfies(theme.manifest.version, versionRange)) {
+    throw new ConfigError("versionRange", `${themeName} ${theme.manifest.version} does not satisfy ${versionRange}`);
+  }
+  return { version: theme.manifest.version, integrity: await snapshot(theme) };
+}
+
+/** The site's config; the first read stores the default theme, locked to its current version. */
+export async function readSiteTheme(siteId: string): Promise<SiteThemeConfig> {
+  const rows = await query<ConfigRow>("SELECT * FROM site_themes WHERE site_id = $1", [siteId]);
+  if (rows[0]) return fromRow(rows[0]);
+  const theme = bundledTheme(DEFAULT_THEME_NAME)!;
+  const range = `^${theme.manifest.version}`;
+  const lock = await lockTo(DEFAULT_THEME_NAME, range);
+  const inserted = await query<ConfigRow>(
+    `INSERT INTO site_themes (site_id, theme_name, version_range, locked_version, locked_integrity)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (site_id) DO UPDATE SET site_id = EXCLUDED.site_id
+     RETURNING *`,
+    [siteId, DEFAULT_THEME_NAME, range, lock.version, lock.integrity],
+  );
+  return fromRow(inserted[0]);
+}
+
+/**
+ * Applies an update. Changing the theme or its range re-locks to the bundled
+ * version; anything else keeps the lock, so publishes render the same bytes.
+ */
+export async function updateSiteTheme(siteId: string, input: unknown): Promise<SiteThemeConfig> {
+  const current = await readSiteTheme(siteId);
+  const targetName = typeof (input as { themeName?: unknown })?.themeName === "string" ? (input as { themeName: string }).themeName : current.themeName;
+  const target = bundledTheme(targetName);
+  if (!target) throw new ConfigError("themeName", "is not an available theme");
+  const update = validateUpdate(input, target.manifest);
+  const next: SiteThemeConfig = { ...current, ...update };
+  if (update.themeName !== undefined && update.themeName !== current.themeName && update.versionRange === undefined) {
+    next.versionRange = `^${target.manifest.version}`;
+    // Settings belong to a theme; a new theme starts from its own defaults.
+    if (update.settings === undefined) next.settings = {};
+  }
+  if (next.themeName !== current.themeName || next.versionRange !== current.versionRange) {
+    next.lock = await lockTo(next.themeName, next.versionRange);
+  }
+  await query(
+    `UPDATE site_themes SET theme_name = $2, version_range = $3, tokens = $4, settings = $5, custom_css = $6,
+       template_overrides = $7, locks = $8, locked_version = $9, locked_integrity = $10, updated_at = now()
+     WHERE site_id = $1`,
+    [
+      siteId,
+      next.themeName,
+      next.versionRange,
+      JSON.stringify(next.tokens),
+      JSON.stringify(next.settings),
+      next.customCss,
+      JSON.stringify(next.templateOverrides),
+      JSON.stringify(next.locks),
+      next.lock.version,
+      next.lock.integrity,
+    ],
+  );
+  return next;
+}
+
+export async function readPresentation(siteId: string, fileId: string): Promise<PagePresentation> {
+  const rows = await query<{ template: string; section_styles: Record<string, string[]> }>(
+    "SELECT template, section_styles FROM page_presentation WHERE site_id = $1 AND file_id = $2",
+    [siteId, fileId],
+  );
+  return rows[0] ? { template: rows[0].template, sectionStyles: rows[0].section_styles } : { template: "page", sectionStyles: {} };
+}
+
+export async function savePresentation(siteId: string, fileId: string, input: unknown): Promise<PagePresentation> {
+  const config = await readSiteTheme(siteId);
+  const theme = await lockedPackage(config.lock.integrity);
+  const presentation = validatePresentation(input, theme.manifest);
+  await query(
+    `INSERT INTO page_presentation (site_id, file_id, template, section_styles) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (site_id, file_id) DO UPDATE SET template = EXCLUDED.template,
+       section_styles = EXCLUDED.section_styles, updated_at = now()`,
+    [siteId, fileId, presentation.template, JSON.stringify(presentation.sectionStyles)],
+  );
+  return presentation;
+}
+
+/** Everything a render of one page needs from the store. */
+export type RenderContext = {
+  theme: ThemePackage;
+  config: SiteThemeConfig | null;
+  presentation: PagePresentation | null;
+};
+
+/**
+ * Reads the signed-in owner's site config for a page. Without a database or a
+ * server session (sample mode, local dev), pages render with the default theme
+ * and the Doc's own section styles, as before #56.
+ */
+export async function renderContextFor(sub: string | null, fileId: string): Promise<RenderContext> {
+  if (!sub || !databaseConfigured()) {
+    return { theme: bundledTheme(DEFAULT_THEME_NAME)!, config: null, presentation: null };
+  }
+  const siteId = await siteForOwner(sub);
+  const config = await readSiteTheme(siteId);
+  const [theme, presentation] = await Promise.all([lockedPackage(config.lock.integrity), readPresentation(siteId, fileId)]);
+  return { theme, config, presentation };
+}

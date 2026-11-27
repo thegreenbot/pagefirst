@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pagefirst.dev/schemas/theme.json",
   "title": "Pagefirst theme manifest",
-  "description": "theme.json at the root of a theme package. See docs/adr/0001-theme-package-contract.md.",
+  "description": "theme.json at the root of a theme package. See docs/adr/0002-theme-package-contract.md.",
   "type": "object",
   "additionalProperties": false,
   "required": ["name", "version", "engine", "templates", "blocks"],

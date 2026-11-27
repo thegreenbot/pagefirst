@@ -37,7 +37,7 @@ type Page = {
   fileId: string;
   revisionId: string;
   path: string;                         // from the Drive folder, index for a doc named index
-  metadata: Record<string, string>;     // title, description, image, template, theme
+  metadata: Record<string, string>;     // title, description, image (presentation lives in the app, #56)
   sections: Section[];
 };
 
@@ -78,7 +78,7 @@ type Cell = { id: string; children: Prose[] };
 | Block | A table. First row is one cell, `hero` or `columns (contained)` | Named range on the whole table |
 | Block options | The parenthetical in the name cell | Rewrite that cell's text |
 | Page metadata | A two-column table whose first cell is `metadata` | Named range `pg/meta`. Not rendered as a block |
-| Section style | A table named `section metadata` at the end of a section | Named range on that table |
+| Section style | Stored by the app per page and section (#56). A `section metadata` table in an older Doc is kept but not rendered | Not written back |
 | Image bytes | An inline image. The Doc stores the bytes after insert | Drive file is only the upload source |
 | Title | The first `h1`. Copied into `metadata.title` on read when that key is empty | Editing the title writes the heading |
 
@@ -112,10 +112,9 @@ First point. | Second point.
 metadata
 title | About
 description | What the studio ships.
-template | page
 ```
 
-Expected page: two sections after the title section, one `hero` block, one `columns` block with option `contained`, and four metadata entries. The metadata table does not appear in the preview.
+Expected page: two sections after the title section, one `hero` block, one `columns` block with option `contained`, and two metadata entries (plus `title` copied from the heading when empty). The metadata table does not appear in the preview.
 
 ## Authentication
 
@@ -187,7 +186,7 @@ A commit of zero operations is a no-op and does not bump the revision the client
 
 ## Publish
 
-Publish is a function of the page at one revision and the site theme. It refuses to run when the editor has uncommitted operations.
+Publish is a function of the page at one revision and the site's stored theme config: the locked theme package, tokens, settings, and each page's template and section styles (#56). The Doc holds content only; `template` and `theme` rows in its metadata table are ignored. It refuses to run when the editor has uncommitted operations.
 
 1. Load that revision and parse it.
 2. Render with the same function the editor uses, in `mode: "publish"`. Editor attributes (`contenteditable`, draft ids, selection) are not in this output.
