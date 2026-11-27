@@ -22,10 +22,12 @@ export async function GET(
     "Content-Type": media.mime,
     "Cache-Control": "private, max-age=3600",
     "X-Content-Type-Options": "nosniff",
+    // Opened directly, the file downloads instead of rendering as a page.
+    // <img> tags ignore this header, so the editor and previews still show it.
+    "Content-Disposition": `attachment; filename="${id}"`,
+    "Content-Security-Policy": "default-src 'none'; script-src 'none'; sandbox",
+    "Cross-Origin-Resource-Policy": "same-origin",
   };
-  if (media.mime === "image/svg+xml") {
-    headers["Content-Security-Policy"] = "default-src 'none'; script-src 'none'; sandbox";
-  }
 
   return new NextResponse(Buffer.from(media.bytes), { headers });
 }

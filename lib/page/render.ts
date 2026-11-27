@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Block, Page, Prose, Section } from "./types";
 
 const STYLE = `body{background:#f4f0e6;color:#1c1915}
@@ -6,6 +7,25 @@ h1,h2,h3,h4{font-family:Georgia,"Times New Roman",serif}
 .section{margin:2rem 0}
 .hero,.columns,.cards{display:flex;flex-direction:column}
 img{max-width:100%}`;
+
+/** The <style> element's text, exactly as written into the page, so its hash matches. */
+const STYLE_ELEMENT_TEXT = `\n${STYLE}\n`;
+const STYLE_HASH = createHash("sha256").update(STYLE_ELEMENT_TEXT).digest("base64");
+
+/**
+ * CSP for published pages: static content, no script at all, only this page's
+ * own stylesheet. Sent as a header by the preview route and as a <meta> tag in
+ * the HTML so it also applies on Cloudflare. (`frame-ancestors` only works as a header.)
+ */
+export const PUBLISHED_CSP = [
+  "default-src 'none'",
+  "script-src 'none'",
+  `style-src 'sha256-${STYLE_HASH}'`,
+  "img-src 'self' https: data:",
+  "font-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
 
 function escapeHtml(value: string): string {
   return value
@@ -80,10 +100,10 @@ export function renderPublishHtml(page: Page): string {
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${PUBLISHED_CSP}">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${escapeHtml(publishTitle(page))}</title>
-${description}<style>
-${STYLE}
-</style>
+${description}<style>${STYLE_ELEMENT_TEXT}</style>
 </head>
 <body>
 <main>
