@@ -101,7 +101,7 @@ export async function listPages(ctx: ServiceContext): Promise<Library> {
     const files = await googleFor(ctx).listDocuments(token, ctx.siteFolders);
     return {
       sample: false,
-      pages: files.map((file) => ({ fileId: file.id, path: slugify(file.name), title: file.name, revisionId: "" })),
+      pages: files.map((file) => ({ fileId: file.id, path: slugify(file.name), title: file.name, revisionId: "", ...(file.modifiedTime ? { modifiedTime: file.modifiedTime } : {}) })),
     };
   } catch (err) {
     throw toServiceError(err, "Could not list pages.", (text) => redact(text, token));
