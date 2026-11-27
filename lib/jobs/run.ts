@@ -25,6 +25,7 @@ function contextFor(job: JobRow, item: JobItem, googleToken: string): ServiceCon
     requestId: `${job.id}:${item.idx}`,
     scopes: new Set(job.scopes),
     ...(job.siteFolders ? { siteFolders: job.siteFolders } : {}),
+    ...(job.siteId ? { siteId: job.siteId } : {}),
   };
 }
 

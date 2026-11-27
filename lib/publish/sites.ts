@@ -85,7 +85,11 @@ export async function publishToOwnSite(
   pagePath: string,
   page: SitePublish,
 ): Promise<{ siteId: string; url: string; uploaded: number }> {
-  const siteId = await siteForOwner(ownerSub);
+  return publishToSite(await siteForOwner(ownerSub), pagePath, page);
+}
+
+/** The same, for a site already chosen: the caller's own, or an organization's they may publish to (#45). */
+export async function publishToSite(siteId: string, pagePath: string, page: SitePublish): Promise<{ siteId: string; url: string; uploaded: number }> {
   const hostname = await siteHostname(siteId);
   const known = await knownFiles(siteId);
   let uploaded = 0;

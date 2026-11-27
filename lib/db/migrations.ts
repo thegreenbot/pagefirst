@@ -591,4 +591,12 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX page_snapshots_published_idx ON page_snapshots (file_id, id DESC) WHERE source = 'publish';
     `,
   },
+  {
+    id: 25,
+    name: "job site",
+    sql: `
+      -- The organization site a job publishes to, when the caller chose one (#45).
+      ALTER TABLE jobs ADD COLUMN site_id text;
+    `,
+  },
 ];
