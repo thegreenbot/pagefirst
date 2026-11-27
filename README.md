@@ -41,11 +41,11 @@ The server reads these variables:
 - `TOKEN_ENCRYPTION_KEY` — 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts stored Google refresh tokens.
 - `PUBLISH_ALLOWLIST` — Google emails (comma- or space-separated) allowed to publish a public copy to Cloudflare. Unset means nobody can; previews still work. This is a stopgap until each site gets its own publish target (#85).
 - `AUDIT_ADMIN_EMAILS` — optional Google emails (comma- or space-separated) that may export every account's audit events from `GET /api/audit?from=…&to=…`. Everyone signed in can read their own events.
-- `APP_URL` — optional public origin with no trailing slash. When it is unset, a request whose host ends with `.vercel.app` uses `https://page-first.apps.grok.bot`.
+- `APP_URL` — the public origin with no trailing slash, such as your Vercel production domain. Set it in production: sign-in redirects and the secure session cookie use it. When it is unset, the app uses the request's own origin (https for `*.vercel.app`).
 
 Set them in the server environment. This repository does not include values for them.
 
-Register the Google redirect URI as the site origin plus `/api/auth/callback`. The production URI is `https://page-first.apps.grok.bot/api/auth/callback`. On the local dev server that is `http://127.0.0.1:3847/api/auth/callback`.
+Register the Google redirect URI as the site origin plus `/api/auth/callback`. In production that is `APP_URL` plus `/api/auth/callback`. On the local dev server that is `http://127.0.0.1:3847/api/auth/callback`.
 
 ## Branches
 
