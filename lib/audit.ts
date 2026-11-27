@@ -38,6 +38,10 @@ export type AuditEventName =
   | "org.scim_token.created"
   | "org.scim_token.revoked"
   | "org.domain_lock"
+  | "org.member.invited"
+  | "org.member.role_changed"
+  | "org.member.removed"
+  | "org.invite.cancelled"
   | "job.started"
   | "job.completed"
   | "request.denied";
