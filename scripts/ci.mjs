@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 
 const steps = [
   { name: "lint", command: ["npm", "run", "lint"] },
+  { name: "typecheck", command: ["npm", "run", "typecheck"] },
   { name: "unit tests", command: ["npm", "test"] },
   // Prints the full report. Gate fails on critical; Next 15's nested postcss
   // highs are reported until a Next 16 upgrade clears them.
@@ -25,4 +26,4 @@ for (const step of steps) {
 if (failed) {
   process.exit(1);
 }
-process.stdout.write("\nci: lint, unit tests, and security audit passed\n");
+process.stdout.write("\nci: lint, typecheck, unit tests, and security audit passed\n");
