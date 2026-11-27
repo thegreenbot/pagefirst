@@ -342,4 +342,17 @@ describe("headers for the published page (#63)", () => {
     const { warnings } = renderPage(aboutFixture(), getDefaultTheme(), { customCss: big, optimizer: nodeOptimizer });
     assert.match(warnings.join("\n"), /Custom CSS/);
   });
+
+  test("a template override replaces the theme's partial, and a stale path is skipped with a warning", () => {
+    const theme = loadThemeFromDir("themes/editorial");
+    const partial = "partials/colophon";
+    const site = { name: "Acme" };
+    const plain = renderPage(aboutFixture(), theme, { site, optimizer: nodeOptimizer });
+    const over = renderPage(aboutFixture(), theme, { site, templateOverrides: { [partial]: "<!--overridden-->", "partials/nope": "x" }, optimizer: nodeOptimizer });
+    assert.ok(over.html.includes("<!--overridden-->"));
+    assert.ok(!plain.html.includes("<!--overridden-->"));
+    assert.match(over.warnings.join("\n"), /partials\/nope.*skipped/);
+    // The cached engine for the theme is untouched by an override.
+    assert.ok(!renderPage(aboutFixture(), theme, { site, optimizer: nodeOptimizer }).html.includes("<!--overridden-->"));
+  });
 });

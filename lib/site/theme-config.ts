@@ -393,7 +393,9 @@ export async function renderContextFor(sub: string | null, fileId: string): Prom
   const siteId = await siteForOwner(sub);
   const stored = await readSiteTheme(siteId);
   // Stored custom CSS stops rendering when the plan no longer includes it (downgrade); it is kept, not deleted.
-  const config = stored.customCss && !(await siteAllows(siteId, "customCss")) ? { ...stored, customCss: "" } : stored;
+  const noCss = stored.customCss && !(await siteAllows(siteId, "customCss"));
+  const noOverrides = Object.keys(stored.templateOverrides).length > 0 && !(await siteAllows(siteId, "templateOverrides"));
+  const config = noCss || noOverrides ? { ...stored, customCss: noCss ? "" : stored.customCss, templateOverrides: noOverrides ? {} : stored.templateOverrides } : stored;
   const [theme, presentation] = await Promise.all([lockedPackage(config.lock.integrity), readPresentation(siteId, fileId)]);
   return { theme, config, presentation };
 }

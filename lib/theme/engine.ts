@@ -29,6 +29,12 @@ export type RenderOptions = {
    */
   customCss?: string;
   /**
+   * Replacement Liquid sources for the locked theme's own templates, by path
+   * such as "partials/footer" (#65). Paths the theme version does not have are
+   * skipped with a warning, so an override never outlives the template it replaced.
+   */
+  templateOverrides?: Record<string, string>;
+  /**
    * Builds the page's CSP from the exact text of each <style> element, written
    * into a <meta> tag. Server renders pass publishedCsp (lib/theme/csp.ts); the engine
    * itself has no Node imports so the editor can render in the browser.
@@ -268,11 +274,12 @@ function classes(tokens: unknown, ...leading: unknown[]): string {
 
 const engines = new WeakMap<ThemePackage, Liquid>();
 
-function engineFor(theme: ThemePackage): Liquid {
-  let liquid = engines.get(theme);
+function engineFor(theme: ThemePackage, overrides?: Record<string, string>): Liquid {
+  const custom = overrides && Object.keys(overrides).length > 0;
+  let liquid = custom ? undefined : engines.get(theme);
   if (liquid) return liquid;
   const templates: Record<string, string> = {};
-  for (const [name, source] of Object.entries(theme.templates)) templates[`${name}.liquid`] = source;
+  for (const [name, source] of Object.entries(theme.templates)) templates[`${name}.liquid`] = overrides && Object.hasOwn(overrides, name) ? overrides[name] : source;
   liquid = new Liquid({
     templates,
     extname: ".liquid",
@@ -296,7 +303,7 @@ function engineFor(theme: ThemePackage): Liquid {
   liquid.registerFilter("raw", () => {
     throw new Error("the raw filter is not available in themes");
   });
-  engines.set(theme, liquid);
+  if (!custom) engines.set(theme, liquid);
   return liquid;
 }
 
@@ -425,8 +432,13 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
   if (!Object.hasOwn(manifest.templates, template)) {
     throw new Error(`${manifest.name} has no "${template}" template`);
   }
-  const liquid = engineFor(theme);
   const warnings: string[] = [];
+  const overrides: Record<string, string> = {};
+  for (const [name, source] of Object.entries(options.templateOverrides ?? {})) {
+    if (Object.hasOwn(theme.templates, name)) overrides[name] = source;
+    else warnings.push(`Template override "${name}" skipped: ${manifest.name} ${manifest.version} has no such template`);
+  }
+  const liquid = engineFor(theme, overrides);
   const html = new WeakMap<object, string>();
   const blocks: { view: BlockView }[] = [];
   const usedBlocks = new Set<string>();
