@@ -12,9 +12,9 @@ import type { RenderOptions } from "./engine";
  */
 export function withPresentation(
   page: Page,
-  config: Pick<SiteThemeConfig, "settings" | "tokens"> | null,
+  config: (Pick<SiteThemeConfig, "settings" | "tokens"> & { customCss?: string }) | null,
   presentation: PagePresentation | null,
-): { page: Page; options: Pick<RenderOptions, "template" | "settings" | "tokens"> } {
+): { page: Page; options: Pick<RenderOptions, "template" | "settings" | "tokens" | "customCss"> } {
   if (!config) return { page, options: {} };
   const styles = presentation?.sectionStyles ?? {};
   return {
@@ -29,6 +29,7 @@ export function withPresentation(
       template: presentation?.template ?? "page",
       settings: config.settings,
       tokens: config.tokens,
+      customCss: config.customCss,
     },
   };
 }

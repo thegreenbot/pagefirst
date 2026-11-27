@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { databaseConfigured } from "@/lib/db/client";
 import { callerKey, checkRateLimit, requireGoogleWriter, tooManyRequests } from "@/lib/guard";
 import { readTextCapped } from "@/lib/http/body";
+import { PlanError } from "@/lib/tenant/plans";
 import { ConfigError, siteForOwner } from "./theme-config";
 
 const MAX_BODY = 512 * 1024;
@@ -32,6 +33,7 @@ export async function readJsonBody(request: Request): Promise<{ ok: true; body: 
 }
 
 export function configErrorResponse(error: unknown): NextResponse {
+  if (error instanceof PlanError) return NextResponse.json({ error: error.message, feature: error.feature, upgrade: true }, { status: 402 });
   if (error instanceof ConfigError) return NextResponse.json({ error: error.message, path: error.path }, { status: 400 });
   throw error;
 }
