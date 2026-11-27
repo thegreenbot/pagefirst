@@ -49,6 +49,17 @@ export const openapi = {
         responses: { "201": { description: "Recorded" }, default: error },
       },
     },
+    "/audit": {
+      get: {
+        operationId: "listAudit",
+        summary: "The caller's own audit events, newest first",
+        parameters: [
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
+          { name: "cursor", in: "query", schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "Events with nextCursor" }, default: error },
+      },
+    },
     "/pages": {
       get: {
         operationId: "listPages",
