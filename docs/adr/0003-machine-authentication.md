@@ -36,9 +36,9 @@ An optional allow-list of Drive folder ids. It matches Docs directly inside a li
 
 ### Storage and verification
 
-- Only `SHA-256(key)` is stored, in `api_keys`, with a short display prefix. The key is shown once, at creation, with `Cache-Control: no-store`.
+- Only `HMAC-SHA256(key)` is stored, in `api_keys`, with a short display prefix. The HMAC key is derived from `TOKEN_ENCRYPTION_KEY` (HKDF), so a database dump alone cannot be used to test guesses, and rotating that key revokes every key and token. The key is shown once, at creation, with `Cache-Control: no-store`.
 - Every request looks the key up in Postgres. Nothing is cached, so **revoking takes effect on the next request**.
-- Keys are 256 random bits, so a fast hash is enough. The `pf_live_` prefix lets GitHub secret scanning and gitleaks match a leaked key.
+- Keys are 256 random bits, so a slow password hash adds nothing. The `pf_live_` prefix lets GitHub secret scanning and gitleaks match a leaked key.
 - `last_used_at` is updated at most once a minute per key.
 - A key stops working when its owner disconnects Google or signs out everywhere, because there is no grant left to act with.
 - A user may hold at most 25 active keys.

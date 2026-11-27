@@ -1,11 +1,12 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
+import { hashSecret } from "@/lib/crypto/hash";
 import { query } from "@/lib/db/client";
 import { SCOPES, type Scope } from "@/lib/service/context";
 
 /**
  * Scoped API keys (#36, ADR 0003). A key acts as the user who created it, with
  * the scopes, site folders and expiry chosen at creation. The key is shown once;
- * only its SHA-256 is stored. Every request looks the key up in the database, so
+ * only a keyed hash (HMAC-SHA256) is stored. Every request looks the key up in the database, so
  * a revoke takes effect on the next request.
  */
 
@@ -61,7 +62,7 @@ function record(row: Row): ApiKeyRecord {
 }
 
 export function hashApiKey(key: string): string {
-  return createHash("sha256").update(key).digest("hex");
+  return hashSecret(key);
 }
 
 /** True when the string looks like one of our keys, so other bearer tokens are not looked up. */

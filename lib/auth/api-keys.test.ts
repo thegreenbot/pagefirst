@@ -55,6 +55,7 @@ const url = testDatabaseUrl();
 
 describe("api keys", { skip: url ? false : "set TEST_DATABASE_URL to run Postgres tests" }, () => {
   before(async () => {
+    process.env.TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
     await resetTestDatabase(url!);
     await upsertUser("sub-a", "a@example.com");
     await upsertUser("sub-b", "b@example.com");
