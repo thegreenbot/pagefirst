@@ -102,6 +102,12 @@ export async function siteIdFor(env: SiteWorkerEnv, hostname: string): Promise<s
   return SITE_ID.test(siteId) ? siteId : null;
 }
 
+/** Speculation Rules (#63): prefetch same-site pages a visitor is about to open. */
+export const SPECULATION_RULES_PATH = "/_pf/speculation-rules.json";
+export const SPECULATION_RULES = JSON.stringify({
+  prefetch: [{ source: "document", where: { href_matches: "/*" }, eagerness: "moderate" }],
+});
+
 export async function handleSiteRequest(request: Request, env: SiteWorkerEnv): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     const response = plain(405, "Method not allowed");
@@ -111,6 +117,17 @@ export async function handleSiteRequest(request: Request, env: SiteWorkerEnv): P
   const url = new URL(request.url);
   const siteId = await siteIdFor(env, url.hostname);
   if (!siteId) return plain(404, "No site is published at this address.");
+  if (url.pathname === SPECULATION_RULES_PATH) {
+    // No site file can live here: path segments must start with a letter or digit.
+    return new Response(request.method === "HEAD" ? null : SPECULATION_RULES, {
+      headers: {
+        ...BASE_HEADERS,
+        "Content-Type": "application/speculationrules+json",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+        "Cache-Control": "public, max-age=86400",
+      },
+    });
+  }
   const keys = candidateKeys(url.pathname);
   if (!keys) return plain(404, "Not found");
 
@@ -125,6 +142,12 @@ export async function handleSiteRequest(request: Request, env: SiteWorkerEnv): P
       ETag: object.httpEtag,
       "Cache-Control": cacheControl(key),
     });
+    if (key.endsWith(".html")) {
+      headers.set("Speculation-Rules", `"${SPECULATION_RULES_PATH}"`);
+      // Preloads stored at publish time; Cloudflare sends them as 103 Early Hints.
+      const link = object.customMetadata?.link;
+      if (link && !/[\r\n]/.test(link)) headers.set("Link", link);
+    }
     if (request.headers.get("if-none-match") === object.httpEtag) return new Response(null, { status: 304, headers });
     return new Response(request.method === "HEAD" ? null : object.body, { headers });
   }

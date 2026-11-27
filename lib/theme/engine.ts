@@ -26,7 +26,7 @@ export type RenderOptions = {
    * into a <meta> tag. Server renders pass publishedCsp (lib/theme/csp.ts); the engine
    * itself has no Node imports so the editor can render in the browser.
    */
-  csp?: (styleTexts: string[], extra: { selfStyles: boolean; scripts: string[] }) => string;
+  csp?: (styleTexts: string[], extra: CspExtra) => string;
   /**
    * Server-side helpers for splitting CSS (#59) and naming island modules (#60).
    * Without them, or in edit mode, all of the page's CSS is inlined and no
@@ -50,6 +50,17 @@ export type ImageRendition = {
   webp: { path: string; width: number }[];
 };
 
+/**
+ * A Link header preloading the LCP image's AVIF renditions (every browser that
+ * reads imagesrcset decodes AVIF), so the picture's <source> uses the same file.
+ */
+function imagePreload(rendition: ImageRendition): string {
+  const list = rendition.avif.length ? rendition.avif : rendition.webp;
+  const type = rendition.avif.length ? "image/avif" : "image/webp";
+  const srcset = list.map((r) => `/${r.path} ${r.width}w`).join(", ");
+  return `</${list[list.length - 1].path}>; rel=preload; as=image; type="${type}"; imagesrcset="${srcset}"; imagesizes="${IMAGE_SIZES}"; fetchpriority=high`;
+}
+
 /** Images fill their container's width at most; this keeps phones off the large files. */
 const IMAGE_SIZES = "(min-width: 1440px) 1440px, 100vw";
 
@@ -59,12 +70,25 @@ export type RenderAsset = { path: string; contentType: string; body: string };
 /** A file published next to a page: text assets from the engine, binary image renditions (#61). */
 export type PublishAsset = { path: string; contentType: string; body: string | Uint8Array };
 
+/** What the page needs beyond its own styles, for the CSP builder. */
+export type CspExtra = {
+  selfStyles: boolean;
+  scripts: string[];
+  /** Origins the theme declares in theme.json `permissions` (#63). */
+  permissions: { connect: string[]; img: string[]; frame: string[] };
+};
+
 export type RenderResult = {
   html: string;
   /** The CSP written into the page, or "" when no csp builder was given. */
   csp: string;
   warnings: string[];
   assets: RenderAsset[];
+  /**
+   * `Link` header values for what the page needs first: the LCP image (#63).
+   * The site Worker sends them so Cloudflare can answer with 103 Early Hints.
+   */
+  preloads: string[];
 };
 
 const LIMITS = {
@@ -397,11 +421,14 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
   const usedOptions = new Map<string, Set<string>>();
   const firstSectionBlocks = new Set<string>();
   let lcpTaken = false;
+  const linkPreloads: string[] = [];
 
   const prose = (node: Prose, sectionIndex: number): ProseView => {
     const view = proseView(node);
     const lcp = node.tag === "img" && !!node.image?.driveFileId && sectionIndex === 0 && !lcpTaken;
     if (lcp) lcpTaken = true;
+    const rendition = lcp && mode === "publish" && options.images ? options.images[node.image!.driveFileId] : undefined;
+    if (rendition) linkPreloads.push(imagePreload(rendition));
     html.set(view, renderProse(node, mode, lcp, options.images, warnings));
     return view;
   };
@@ -506,7 +533,15 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
   const css = planCss(theme, usedBlocks, usedOptions, firstSectionBlocks, optimizer, tokenStyle);
   const criticalCss = hasIslands ? ISLAND_CSS + css.critical : css.critical;
   const csp = options.csp
-    ? options.csp([tokenStyle, criticalCss], { selfStyles: !!css.deferred, scripts: hasIslands ? [ISLAND_LOADER] : [] })
+    ? options.csp([tokenStyle, criticalCss], {
+        selfStyles: !!css.deferred,
+        scripts: hasIslands ? [ISLAND_LOADER] : [],
+        permissions: {
+          connect: [...(manifest.permissions?.connect ?? [])],
+          img: [...(manifest.permissions?.img ?? [])],
+          frame: [...(manifest.permissions?.frame ?? [])],
+        },
+      })
     : "";
   const cspMeta = csp ? `\n<meta http-equiv="Content-Security-Policy" content="${csp.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">` : "";
   const description = pageView.description
@@ -540,7 +575,7 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
   }
   if (out.length > LIMITS.outputBytes) throw new Error(`${manifest.name}: page output exceeds ${LIMITS.outputBytes} bytes`);
   const assets = [...(css.deferred ? [css.deferred] : []), ...islandAssets];
-  return { html: out, csp, warnings, assets };
+  return { html: out, csp, warnings, assets, preloads: linkPreloads };
 }
 
 /**

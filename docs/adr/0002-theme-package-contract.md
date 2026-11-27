@@ -113,6 +113,15 @@ The editor preview never runs block JS: it renders the island's body only. A blo
 
 Images are prepared at publish time (Will's decision: simpler over faster bulk publishes). Each image's bytes are copied out of the media store into AVIF and WebP renditions at 480, 960, 1440 and 1920 px wide, never wider than the source. They are named `/assets/img/<hash>-<width>.<ext>`, where the hash comes from the source bytes. A published image renders as `<picture>` with an AVIF `<source>` and a WebP `<img>` carrying `srcset`, `sizes`, `width` and `height`, so nothing shifts when it loads. Themes should keep `height: auto` on images. The first image in the first section gets `fetchpriority="high"`; the rest get `loading="lazy"` and `decoding="async"`. An image that cannot be prepared is left out with a warning, so a published page never points at `/api/media` or Drive. Each site records which renditions it already has (`image_renditions`), and an unchanged image is never encoded or uploaded twice. The editor keeps using `/api/media`.
 
+### 11. Publishing to a site (#63)
+
+A page and its files go to the site's folder in R2 (#94). The app records the hash of every file it has written (`site_files`), and anything unchanged is skipped, so republishing an unchanged page uploads nothing. Assets go up before the page. The site Worker sends:
+
+- the page's stored CSP, where `script-src` is `'none'` unless the page has islands, and `connect-src` and `frame-src` list only the https origins the theme declares in `permissions`;
+- a `Link` preload for the LCP image (and, with #62, the above-the-fold font), stored with the page so Cloudflare can send 103 Early Hints;
+- a `Speculation-Rules` header pointing at `/_pf/speculation-rules.json`, which prefetches same-site links with moderate eagerness;
+- `immutable` caching for `assets/pf/` and `assets/img/`, 60 seconds for pages.
+
 ## Consequences
 
 - `render.ts` keeps only orchestration; markup and styles move to `themes/default` (#54).

@@ -39,6 +39,7 @@ export type ThemeManifest = {
 };
 
 const BLOCK_LOADS = new Set<BlockLoad>(["visible", "idle", "interaction"]);
+const ORIGIN = /^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?$/;
 const IDENTIFIER = /^[a-z][a-z0-9-]{0,39}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -67,6 +68,15 @@ export function parseManifest(value: unknown): ThemeManifest {
     }
     if (block.js !== undefined && (!isRecord(block.js) || !BLOCK_LOADS.has(block.js.load as BlockLoad))) {
       throw new Error(`theme.json: block "${name}" js.load must be one of ${[...BLOCK_LOADS].join(", ")}`);
+    }
+  }
+  if (value.permissions !== undefined) {
+    if (!isRecord(value.permissions)) throw new Error("theme.json: permissions must be an object");
+    for (const [kind, origins] of Object.entries(value.permissions)) {
+      if (!["connect", "img", "frame"].includes(kind)) throw new Error(`theme.json: permissions.${kind} is not supported`);
+      if (!Array.isArray(origins) || !origins.every((origin) => typeof origin === "string" && ORIGIN.test(origin))) {
+        throw new Error(`theme.json: permissions.${kind} must list https origins such as https://api.example.com`);
+      }
     }
   }
   if (value.settings !== undefined && !Array.isArray(value.settings)) {

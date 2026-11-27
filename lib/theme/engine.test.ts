@@ -294,3 +294,35 @@ describe("islands (#60)", () => {
     assert.equal(loadThemeFromDir(dir).blockJs?.map, "export default () => {};");
   });
 });
+
+describe("headers for the published page (#63)", () => {
+  const rendition = {
+    width: 1200,
+    height: 800,
+    avif: [480, 1200].map((width) => ({ path: `assets/img/0123456789abcdef-${width}.avif`, width })),
+    webp: [480, 1200].map((width) => ({ path: `assets/img/0123456789abcdef-${width}.webp`, width })),
+  };
+
+  test("the LCP image gets a preload Link header with its AVIF srcset", () => {
+    const fixture = page([{ id: "s", style: [], children: [prose("i", "img", undefined, { driveFileId: "x", alt: "a" }), prose("j", "img", undefined, { driveFileId: "x", alt: "b" })] }]);
+    const { preloads } = renderPage(fixture, getDefaultTheme(), { images: { x: rendition } });
+    assert.deepEqual(preloads, [
+      '</assets/img/0123456789abcdef-1200.avif>; rel=preload; as=image; type="image/avif"; imagesrcset="/assets/img/0123456789abcdef-480.avif 480w, /assets/img/0123456789abcdef-1200.avif 1200w"; imagesizes="(min-width: 1440px) 1440px, 100vw"; fetchpriority=high',
+    ]);
+    assert.deepEqual(renderPage(fixture, getDefaultTheme(), { mode: "edit", images: { x: rendition } }).preloads, []);
+    assert.deepEqual(renderPage(aboutFixture(), getDefaultTheme()).preloads, [], "no renditions, no preload");
+  });
+
+  test("origins a theme declares join the CSP; others are refused", () => {
+    const theme = inlineTheme({ "layouts/page": "{% pf_head %}" });
+    theme.manifest.permissions = { connect: ["https://api.example.com"], frame: ["https://player.example.com"] };
+    const { csp } = renderPage(page([]), theme, { csp: publishedCsp });
+    assert.match(csp, /connect-src https:\/\/api\.example\.com/);
+    assert.match(csp, /frame-src https:\/\/player\.example\.com/);
+    assert.doesNotMatch(renderPage(page([]), getDefaultTheme(), { csp: publishedCsp }).csp, /connect-src|frame-src/);
+    const base = { name: "@a/b", version: "1.0.0", engine: 1, templates: { page: {} }, blocks: {} };
+    for (const permissions of [{ connect: ["http://insecure.example"] }, { connect: ["*"] }, { script: ["https://x.example"] }, { img: "https://x.example" }]) {
+      assert.throws(() => parseManifest({ ...base, permissions }), /permissions/, JSON.stringify(permissions));
+    }
+  });
+});

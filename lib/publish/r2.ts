@@ -44,13 +44,19 @@ function objectUrl(config: R2Config, key: string): string {
     .join("/")}`;
 }
 
-async function send(method: "PUT" | "DELETE", key: string, init: { body?: string | Uint8Array; contentType?: string; csp?: string } = {}): Promise<void> {
+async function send(
+  method: "PUT" | "DELETE",
+  key: string,
+  init: { body?: string | Uint8Array; contentType?: string; csp?: string; link?: string } = {},
+): Promise<void> {
   const config = r2Config();
   if (!config) throw new Error("Publishing storage is not configured");
   const headers: Record<string, string> = { Authorization: `Bearer ${config.token}` };
   if (init.contentType) headers["Content-Type"] = init.contentType;
   // R2 stores cf-r2-meta-* headers as customMetadata, which the Worker sends as the page's CSP.
   if (init.csp) headers["cf-r2-meta-csp"] = init.csp;
+  // The page's preload Link header (#63), which Cloudflare turns into 103 Early Hints.
+  if (init.link) headers["cf-r2-meta-link"] = init.link;
   const response = await fetch(objectUrl(config, key), { method, headers, body: typeof init.body === "object" ? Buffer.from(init.body) : init.body, signal: AbortSignal.timeout(15_000) });
   await response.arrayBuffer().catch(() => undefined);
   if (!response.ok && !(method === "DELETE" && response.status === 404)) {
@@ -60,9 +66,9 @@ async function send(method: "PUT" | "DELETE", key: string, init: { body?: string
 }
 
 /** Writes one page of one site. Other pages and other sites are untouched. */
-export async function putSitePage(siteId: string, pagePath: string, html: string, csp: string): Promise<string> {
+export async function putSitePage(siteId: string, pagePath: string, html: string, csp: string, link = ""): Promise<string> {
   const key = siteObjectKey(siteId, pagePath);
-  await send("PUT", key, { body: html, contentType: "text/html; charset=utf-8", csp });
+  await send("PUT", key, { body: html, contentType: "text/html; charset=utf-8", csp, link: link || undefined });
   return key;
 }
 
