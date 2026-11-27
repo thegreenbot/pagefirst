@@ -38,6 +38,7 @@ export type ThemeManifest = {
   budgets?: Record<string, number>;
 };
 
+const BLOCK_LOADS = new Set<BlockLoad>(["visible", "idle", "interaction"]);
 const IDENTIFIER = /^[a-z][a-z0-9-]{0,39}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -63,6 +64,9 @@ export function parseManifest(value: unknown): ThemeManifest {
     if (!isRecord(block)) throw new Error(`theme.json: block "${name}" must be an object`);
     if (block.options !== undefined && !Array.isArray(block.options)) {
       throw new Error(`theme.json: block "${name}" options must be a list`);
+    }
+    if (block.js !== undefined && (!isRecord(block.js) || !BLOCK_LOADS.has(block.js.load as BlockLoad))) {
+      throw new Error(`theme.json: block "${name}" js.load must be one of ${[...BLOCK_LOADS].join(", ")}`);
     }
   }
   if (value.settings !== undefined && !Array.isArray(value.settings)) {

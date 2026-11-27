@@ -10,6 +10,11 @@ export type ThemePackage = {
   baseCss: string;
   /** CSS per declared block that ships a block.css. */
   blockCss: Record<string, string>;
+  /**
+   * ES module source per block that declares `js` (#60). Optional because
+   * package snapshots stored before islands existed do not have it.
+   */
+  blockJs?: Record<string, string>;
   tokens: Record<string, unknown>;
 };
 
@@ -59,13 +64,18 @@ export function loadThemeFromDir(root: string): ThemePackage {
     if (!(`layouts/${name}` in templates)) throw new Error(`${manifest.name}: layouts/${name}.liquid is missing`);
   }
   const blockCss: Record<string, string> = {};
-  for (const name of Object.keys(manifest.blocks)) {
+  const blockJs: Record<string, string> = {};
+  for (const [name, block] of Object.entries(manifest.blocks)) {
     if (!(`blocks/${name}/block` in templates)) {
       throw new Error(`${manifest.name}: blocks/${name}/block.liquid is missing`);
     }
     const css = path.join(root, "blocks", name, "block.css");
     const source = readOptional(css);
     if (source !== null) blockCss[name] = source.trim();
+    const js = readOptional(path.join(root, "blocks", name, "block.js"));
+    if (block.js && js === null) throw new Error(`${manifest.name}: block "${name}" declares js but blocks/${name}/block.js is missing`);
+    if (!block.js && js !== null) throw new Error(`${manifest.name}: blocks/${name}/block.js needs "js": { "load": ... } in theme.json`);
+    if (js !== null) blockJs[name] = js.trim();
   }
 
   const base = path.join(root, "styles", "base.css");
@@ -75,6 +85,7 @@ export function loadThemeFromDir(root: string): ThemePackage {
     templates,
     baseCss: (readOptional(base) ?? "").trim(),
     blockCss,
+    blockJs,
     tokens: JSON.parse(readOptional(tokensFile) ?? "{}") as Record<string, unknown>,
   };
 }

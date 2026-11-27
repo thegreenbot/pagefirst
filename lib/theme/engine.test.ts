@@ -1,10 +1,15 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import Ajv2020 from "ajv/dist/2020";
 import { aboutFixture } from "@/lib/page/fixture";
 import type { Block, Page, Prose } from "@/lib/page/types";
+import { nodeOptimizer, publishedCsp } from "./csp";
 import { renderPage } from "./engine";
+import { ISLAND_LOADER } from "./islands";
 import { parseManifest } from "./manifest";
 import { getDefaultTheme, loadThemeFromDir, type ThemePackage } from "./package";
 
@@ -191,5 +196,101 @@ describe("theme sandbox", () => {
     const withGallery = page([{ id: "s", style: [], children: [block("g", "gallery", [], [prose("i", "img", undefined, { driveFileId: "x", alt: "a" })])] }]);
     const { html } = renderPage(withGallery, theme);
     assert.equal(html, '<div class="gallery" data-above="true"><img src="/api/media/x" alt="a" fetchpriority="high"></div>');
+  });
+});
+
+describe("islands (#60)", () => {
+  const layout = {
+    "layouts/page":
+      "<html><head>{% pf_head %}</head><body>{% for s in page.sections %}{% for n in s.children %}{% pf_node n %}{% endfor %}{% endfor %}{% pf_foot %}</body></html>",
+  };
+  const islandTheme = (load: "visible" | "idle" | "interaction" = "visible", template = "{% island %}<div class=\"map\">{{ block.name }}</div>{% endisland %}") => {
+    const theme = inlineTheme(layout, { map: template, plain: "<div class=\"plain\"></div>" });
+    theme.manifest.blocks.map.js = { load };
+    theme.blockJs = { map: "export default (el) => { el.dataset.mounted = '1'; };" };
+    return theme;
+  };
+  const twoSections = (first: string, second: string) =>
+    page([
+      { id: "s1", style: [], children: [block("a", first, [], [])] },
+      { id: "s2", style: [], children: [block("b", second, [], [])] },
+    ]);
+
+  test("a page whose blocks declare no JS ships no script, and the CSP allows none", () => {
+    const cases: [Page, ThemePackage][] = [
+      [aboutFixture(), getDefaultTheme()],
+      [twoSections("plain", "plain"), islandTheme()],
+    ];
+    for (const [fixture, theme] of cases) {
+      const { html, csp, assets } = renderPage(fixture, theme, { csp: publishedCsp, optimizer: nodeOptimizer });
+      assert.doesNotMatch(html, /<script|modulepreload|pf-island/);
+      assert.match(csp, /script-src 'none'/);
+      assert.equal(assets.filter((asset) => asset.path.endsWith(".js")).length, 0);
+    }
+  });
+
+  test("a block with JS mounts as an island with a hashed module and an inline loader", () => {
+    const { html, csp, assets, warnings } = renderPage(twoSections("plain", "map"), islandTheme("idle"), {
+      csp: publishedCsp,
+      optimizer: nodeOptimizer,
+    });
+    assert.deepEqual(warnings, []);
+    const moduleAsset = assets.find((asset) => asset.path.endsWith(".js"));
+    assert.ok(moduleAsset);
+    assert.match(moduleAsset.path, /^assets\/pf\/[a-f0-9]{16}\.js$/);
+    assert.ok(html.includes(`<pf-island data-pf-src="/${moduleAsset.path}" data-pf-load="idle"><div class="map">map</div></pf-island>`));
+    assert.equal((html.match(/<script>/g) ?? []).length, 1);
+    assert.ok(html.includes(`<script>${ISLAND_LOADER}</script></body>`));
+    assert.ok(html.includes("pf-island{display:contents}"));
+    assert.doesNotMatch(html, /modulepreload/, "islands below the first section are not preloaded");
+    const loaderHash = `'sha256-${createHash("sha256").update(ISLAND_LOADER).digest("base64")}'`;
+    assert.ok(csp.includes(`script-src 'self' ${loaderHash}`));
+  });
+
+  test("only first-section islands get modulepreload", () => {
+    const { html, assets } = renderPage(twoSections("map", "plain"), islandTheme(), { optimizer: nodeOptimizer });
+    const moduleAsset = assets.find((asset) => asset.path.endsWith(".js"))!;
+    assert.ok(html.includes(`<link rel="modulepreload" href="/${moduleAsset.path}">`));
+  });
+
+  test("the loader is inlined and stays under 1 KB", () => {
+    assert.ok(Buffer.byteLength(ISLAND_LOADER) < 1024, `${Buffer.byteLength(ISLAND_LOADER)} bytes`);
+  });
+
+  test("the editor never ships island JavaScript", () => {
+    const { html, assets } = renderPage(twoSections("map", "map"), islandTheme(), { mode: "edit", optimizer: nodeOptimizer });
+    assert.doesNotMatch(html, /<script|pf-island/);
+    assert.equal(assets.length, 0);
+  });
+
+  test("a JS block without {% island %} is reported and its module not shipped", () => {
+    const { html, assets, warnings } = renderPage(twoSections("map", "plain"), islandTheme("visible", "<div class=\"map\"></div>"), {
+      optimizer: nodeOptimizer,
+    });
+    assert.doesNotMatch(html, /<script/);
+    assert.equal(assets.length, 0);
+    assert.match(warnings.join("\n"), /no \{% island %\}/);
+  });
+
+  test("island JavaScript over the theme's budget is reported", () => {
+    const theme = islandTheme();
+    theme.manifest.budgets = { jsKb: 0.01 };
+    const { warnings } = renderPage(twoSections("map", "plain"), theme, { optimizer: nodeOptimizer });
+    assert.match(warnings.join("\n"), /over the 10 byte budget/);
+  });
+
+  test("manifests must name a load strategy, and block.js must be declared", () => {
+    const base = { name: "@a/b", version: "1.0.0", engine: 1, templates: { page: {} } };
+    assert.throws(() => parseManifest({ ...base, blocks: { map: { label: "Map", js: { load: "eager" } } } }), /js\.load/);
+    const dir = mkdtempSync(path.join(tmpdir(), "pf-theme-"));
+    writeFileSync(path.join(dir, "theme.json"), JSON.stringify({ ...base, blocks: { map: { label: "Map" } } }));
+    mkdirSync(path.join(dir, "layouts"));
+    writeFileSync(path.join(dir, "layouts", "page.liquid"), "x");
+    mkdirSync(path.join(dir, "blocks", "map"), { recursive: true });
+    writeFileSync(path.join(dir, "blocks", "map", "block.liquid"), "{% island %}x{% endisland %}");
+    writeFileSync(path.join(dir, "blocks", "map", "block.js"), "export default () => {};");
+    assert.throws(() => loadThemeFromDir(dir), /needs "js"/);
+    writeFileSync(path.join(dir, "theme.json"), JSON.stringify({ ...base, blocks: { map: { label: "Map", js: { load: "visible" } } } }));
+    assert.equal(loadThemeFromDir(dir).blockJs?.map, "export default () => {};");
   });
 });

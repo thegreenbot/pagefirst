@@ -3,10 +3,10 @@ import { readPreviewAsset } from "@/lib/publish/preview";
 
 export const dynamic = "force-dynamic";
 
-/** Deferred CSS for published previews (#59). Names are content hashes, so they never change. */
+/** Deferred CSS (#59) and island modules (#60) for published previews. Names are content hashes, so they never change. */
 export async function GET(_request: Request, context: { params: Promise<{ file: string }> }) {
   const { file } = await context.params;
-  const asset = /^[a-f0-9]{16}\.css$/.test(file) ? readPreviewAsset(`assets/pf/${file}`) : null;
+  const asset = /^[a-f0-9]{16}\.(css|js)$/.test(file) ? readPreviewAsset(`assets/pf/${file}`) : null;
   if (!asset) {
     return new NextResponse("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }
