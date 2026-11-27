@@ -482,4 +482,13 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX job_items_pending_idx ON job_items (job_id, status, idx);
     `,
   },
+  {
+    id: 21,
+    name: "render keys",
+    sql: `
+      -- hash(revision + theme integrity + site config) of what a page was last
+      -- published with (#67): an unchanged key is not rendered or uploaded again.
+      ALTER TABLE site_pages ADD COLUMN render_key text;
+    `,
+  },
 ];

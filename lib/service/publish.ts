@@ -5,13 +5,14 @@ import { mayPublishPublicly } from "@/lib/publish/allowlist";
 import { uploadToCloudflare } from "@/lib/publish/cloudflare";
 import { encodeMissing, planImages, recordSiteRenditions, siteHasRenditions } from "@/lib/publish/images";
 import { readPreviewAsset, savePreview, savePreviewAssets } from "@/lib/publish/preview";
-import { publishToOwnSite, sitePublishingEnabled } from "@/lib/publish/sites";
+import { publishToOwnSite, siteHostname, sitePublishingEnabled } from "@/lib/publish/sites";
+import { isCurrentRender, recordRenderKey, renderKey } from "@/lib/site/render-key";
 import { renderContextFor, siteForOwner } from "@/lib/site/theme-config";
 import { recordSitePage } from "@/lib/site/theme-preview";
 import { requireScope, ServiceError, type ServiceContext } from "./context";
 import { getPage } from "./pages";
 
-export type PublishResponse = PublishResult & { warning?: string };
+export type PublishResponse = PublishResult & { warning?: string; unchanged?: boolean };
 
 export type PublishOptions = {
   /** Publish a copy to the site's public address, not only a preview. */
@@ -49,6 +50,16 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
 
   // Sample pages have no site; signed-in pages render with their site's stored theme (#56).
   const renderContext = await renderContextFor(payload.sample ? null : ctx.actor.sub, fileId);
+  const key = renderKey(payload.page.revisionId, renderContext);
+  // Same revision, theme and site config as the last public publish: nothing to render or upload (#67).
+  if (wantsPublic && ctx.googleToken && ctx.actor.sub && !payload.sample && sitePublishingEnabled()) {
+    const siteId = await siteForOwner(ctx.actor.sub);
+    if (await isCurrentRender(siteId, fileId, key)) {
+      const path = payload.page.path.replace(/^\/+/, "");
+      const response: PublishResponse = { ok: true, sample: false, previewPath: `/published/${fileId}`, url: `https://${await siteHostname(siteId)}/${path === "index" ? "" : path}`, unchanged: true };
+      return { response, audit: { outcome: "ok", errorCode: "public:unchanged", siteId, resultRevisionId: payload.page.revisionId, pagePath: payload.page.path } };
+    }
+  }
   // Image renditions (#61): planned once, encoded only for destinations that lack them.
   const imagePlan = await planImages(payload.page);
   const { html, csp, assets, preloads } = renderPageHtml(payload.page, "publish", renderContext, imagePlan.images);
@@ -90,6 +101,7 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
       await recordSiteRenditions(published.siteId, siteImages.encoded);
       // Theme change previews sample these pages, and applying one republishes them (#66).
       await recordSitePage(published.siteId, { fileId, path: payload.page.path, revisionId: payload.page.revisionId });
+      await recordRenderKey(published.siteId, fileId, key);
       response.url = published.url;
       return audit("ok", "public", published.siteId);
     } catch (error) {
