@@ -20,6 +20,15 @@ concurrency:
 
 # Each job name is a stable required status check on main and develop.
 jobs:
+  # The branch ruleset requires one check named `ci`. develop runs the cheap
+  # checks inside it; here it just reports once the separate jobs have passed.
+  ci:
+    needs: [lint, typecheck, test, audit, build, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo "all checks passed"
+
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
