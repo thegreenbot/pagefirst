@@ -31,6 +31,19 @@ Then open a pull request from `main` into `develop` so the release commit is on 
 
 Cut `hotfix/vX.Y.Z` from `main` for a production fix that should not wait for the rest of `develop`. Open it against `main`, tag the merge commit `vX.Y.Z`, then pull `main` back into `develop` the same way as a release.
 
+## CI minutes
+
+GitHub bills Actions per job, rounded up to the minute, so the rules are about fewer jobs and fewer runs:
+
+- Required checks are `ci`, `integration`, `dependency-review`, `gitleaks`, `analyze (javascript-typescript)` and `pr-source`. `ci` runs lint, typecheck, unit tests, coverage, theme byte budgets and `npm audit` in one job with one install. `integration` runs the build, HTTP tests and Playwright. A skipped job reports success, which is how docs-only PRs stay mergeable.
+- A docs-only PR (markdown, `docs/`, `runbooks/`) skips `ci` and `integration`. CodeQL skips its steps unless a JS/TS file changed. Dependency review skips its steps unless a manifest, lockfile or workflow changed.
+- Lighthouse theme budgets run on a PR only when it touches `themes/`, `lib/theme/`, `lib/page/`, `lib/publish/` or `scripts/theme-budgets`, or carries the `lighthouse` label. Pushes to `develop`, `main`, `release/*` and `hotfix/*` always run them.
+- A new push to a PR, or to `develop`, cancels the run in flight. Run `npm run ci` locally and push once instead of pushing small fix-ups.
+- CodeQL and gitleaks run on PRs. After merge only `main` is scanned again, plus the weekly schedule. The real-Google contract test runs on develop pushes that touch Google code, weekly, and on demand.
+- Draft PRs still run CI. A skipped required check counts as passing, so skipping drafts would let a draft merge once marked ready without ever running tests.
+- Dependabot opens at most 3 PRs at a time. Do not merge `develop` into every Dependabot branch at once; each merge re-runs CI.
+- A new workflow needs `concurrency` with `cancel-in-progress` on PRs and a `timeout-minutes`. Gate required checks with job-level or step-level `if`, never workflow-level `paths`, or the check never reports and blocks merges.
+
 ## Origin rules and PR CI
 
 Direct pushes to `main` and `develop` are refused by the local pre-push hook after `npm install`. On the server, someone with a Cursor API key that can edit Origin rulesets applies either:
@@ -58,7 +71,7 @@ Vercel Hobby allows 100 deployments a day, so builds are opt-in (`scripts/vercel
 - `main` always builds the production site.
 - Pushes to `develop`, `feature/*` and any branch without an open PR never build.
 - A PR preview builds only when the latest commit message contains `[preview]`, for example `git commit --allow-empty -m "Preview [preview]"` after the PR exists. The tag must be on the newest commit; a later commit without it is skipped.
-- CI (lint, typecheck, test, build, integration) runs on every PR regardless.
+- CI (`ci`, `integration`) runs on every code PR regardless.
 - Merge to `main` as batched `release/vX.Y.Z` PRs, not one merge per feature.
 
 ## Secrets
