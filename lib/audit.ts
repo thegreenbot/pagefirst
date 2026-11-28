@@ -40,6 +40,7 @@ export type AuditEventName =
   | "org.scim_token.revoked"
   | "org.domain_lock"
   | "org.theme_policy"
+  | "org.theme_rollout"
   | "org.member.invited"
   | "org.member.role_changed"
   | "org.member.removed"
