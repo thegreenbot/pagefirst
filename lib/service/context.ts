@@ -33,6 +33,8 @@ export type ServiceContext = {
   /** A Google access token for the actor, or null for sample mode. */
   googleToken: string | null;
   requestId: string;
+  /** An organization site the caller selected (X-Pagefirst-Site) and may publish to. Omitted means their own site. */
+  siteId?: string;
   idempotencyKey?: string;
   /** Granted scopes. Omitted means a full browser session. */
   scopes?: ReadonlySet<Scope>;
