@@ -146,3 +146,23 @@ test("configuredDomainProvider picks by DOMAIN_PROVIDER and returns null when un
     "cloudflare-saas",
   );
 });
+
+test("a bare domain's route record carries the flattening note, and the manual provider accepts flattened addresses", async () => {
+  const { impl } = fakeFetch(() => ({ status: 200, body: { result: { id: "ch-apex", status: "pending", ssl: { status: "initializing" } } } }));
+  const cf = createCloudflareSaasProvider({ zoneId: "z", token: "t", cnameTarget: "domains.example.io" }, impl);
+  const added = await cf.add("alice-site.com", "tok");
+  assert.match(added.records.find((r) => r.purpose === "route")?.note ?? "", /ALIAS or ANAME/);
+  const sub = await cf.add("www.alice-site.com", "tok");
+  assert.equal(sub.records.find((r) => r.purpose === "route")?.note, undefined);
+
+  const resolver = {
+    resolveCname: async () => {
+      throw new Error("ENODATA");
+    },
+    resolveTxt: async () => [["tok"]],
+    resolve4: async (name: string) => (name === "alice-site.com" || name === "domains.example.io" ? ["203.0.113.7"] : []),
+  };
+  const manual = createManualProvider("domains.example.io", resolver);
+  assert.equal((await manual.status("alice-site.com", "alice-site.com", "tok")).state, "active");
+  assert.equal((await manual.status("www.alice-site.com", "www.alice-site.com", "tok")).state, "pending", "a subdomain still needs a real CNAME");
+});

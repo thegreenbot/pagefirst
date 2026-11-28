@@ -19,7 +19,7 @@ Owners serve a published site from their own domain (#181). The hosted service u
 
 ## What an owner does
 
-Add a CNAME from their hostname to the target. Cloudflare validates the hostname over HTTP once the CNAME resolves, issues the certificate and renews it. If they add a TXT ownership or certificate record from the editor, that validates before the CNAME is live. Bare (apex) domains aren't supported at launch (#191); they use `www` or a subdomain.
+Add a CNAME from their hostname to the target. Cloudflare validates the hostname over HTTP once the CNAME resolves, issues the certificate and renews it. If they add a TXT ownership or certificate record from the editor, that validates before the CNAME is live. Bare (apex) domains work through the owner's DNS host, using CNAME flattening, ALIAS or ANAME at the root (#191); there is no Enterprise apex proxying, so no extra Cloudflare cost. The editor shows a note beside the route record. Owners whose host can't do this use `www` plus a registrar redirect; see `docs/custom-domains.md`.
 
 ## Self-hosted (manual provider)
 

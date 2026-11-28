@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 type Domain = { id: string; hostname: string; status: "pending" | "verifying" | "active" | "error" | "removed"; lastError: string | null };
-type DnsRecord = { type: string; name: string; value: string };
+type DnsRecord = { type: string; name: string; value: string; note?: string };
 
 const LABEL: Record<Domain["status"], string> = {
   pending: "Waiting for DNS",
@@ -86,6 +86,7 @@ export function DomainsPanel() {
                 {(records[domain.id] ?? []).map((record) => (
                   <li key={`${record.type}-${record.name}`}>
                     Add a {record.type} record: <code className="break-all">{record.name}</code> → <code className="break-all">{record.value}</code>
+                    {record.note ? <span className="mt-1 block text-ink-soft">{record.note}</span> : null}
                   </li>
                 ))}
               </ul>
@@ -112,7 +113,7 @@ export function DomainsPanel() {
             className="mt-1 block w-full border border-rule bg-paper px-2 py-1"
           />
         </label>
-        <p className="text-xs text-ink-soft">Use a subdomain such as www.example.com. Point it at us with the DNS record shown after you add it.</p>
+        <p className="text-xs text-ink-soft">Use a subdomain such as www.example.com, or a bare domain if your DNS host supports it. Point it at us with the DNS record shown after you add it.</p>
         <button type="button" disabled={busy || !hostname.trim()} onClick={() => void add()} className="justify-self-start border border-rule px-3 py-1 disabled:opacity-50">
           Add domain
         </button>

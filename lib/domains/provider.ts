@@ -12,7 +12,13 @@ export type DnsRecord = {
   value: string;
   /** What the owner should be told the record is for. */
   purpose: "route" | "ownership" | "certificate";
+  /** Extra guidance for this record, shown beside it (for example about the root of a domain). */
+  note?: string;
 };
+
+/** What to tell an owner adding the route record for a bare domain (#191). */
+export const APEX_NOTE =
+  "This is the root of your domain, so your DNS host must support CNAME flattening, or an ALIAS or ANAME record. If it doesn't, use www.<your domain> instead and have your registrar redirect the bare domain to it.";
 
 export type ProviderState = "pending" | "verifying" | "active" | "error";
 

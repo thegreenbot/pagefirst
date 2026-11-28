@@ -4,7 +4,7 @@ Publish your site at your own address, such as `www.example.com`, instead of `yo
 
 ## Add a domain
 
-1. In the editor, open **Custom domain** and enter a subdomain, for example `www.example.com` or `docs.example.com`. Bare domains (`example.com`) aren't supported yet; use `www` and have your registrar forward the bare domain to it.
+1. In the editor, open **Custom domain** and enter a subdomain, for example `www.example.com` or `docs.example.com`, or a bare domain such as `example.com` (see [Bare domains](#bare-domains) first).
 2. The editor shows the DNS record to create. Add it at the place that hosts your DNS (usually your registrar):
    - **Type** `CNAME`, **name** the subdomain (`www`), **value** the target shown in the editor.
    - Some domains also show a `TXT` record for ownership or the certificate. Add those too.
@@ -22,6 +22,14 @@ Publish your site at your own address, such as `www.example.com`, instead of `yo
 | Route 53 | Hosted zones, your zone, Create record. |
 
 Enter the name relative to your domain (`www`), not the full name, unless the page says otherwise.
+
+## Bare domains
+
+A bare domain (`example.com`, no `www`) needs a DNS record that points the root of your domain at us. A normal CNAME isn't allowed at the root, so your DNS host must offer one of these, which behave like a CNAME: **CNAME flattening**, an **ALIAS** record, or an **ANAME** record. Add it with the same target shown in the editor.
+
+Hosts known to support one of them include Cloudflare (CNAME flattening, automatic), Namecheap, DNSimple and Porkbun (ALIAS). Many registrars, including GoDaddy, don't offer it, and Route 53 only aliases to AWS resources. Check your host's documentation; this list can change.
+
+**If your host doesn't support it:** use `www.example.com` as your custom domain instead, and set up a redirect from `example.com` to `https://www.example.com` at your registrar (often called "domain forwarding"). Visitors typing the bare domain still reach your site.
 
 ## What the messages mean
 
