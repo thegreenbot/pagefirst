@@ -6,6 +6,7 @@ import type { Page } from "@/lib/page/types";
 import { savePreview, savePreviewAssets } from "@/lib/publish/preview";
 import { budgetsFor, checkBudgets, measure, type Breach, type Measurement } from "@/lib/theme/budgets";
 import { nodeOptimizer } from "@/lib/theme/csp";
+import { orgIdForSite } from "@/lib/tenant/orgs";
 import { checkThemeUpdate, readSitePolicy } from "./theme-policy";
 import { lockedPackage, readPresentation, readSiteTheme, resolveUpdate, saveSiteTheme, type SiteThemeConfig } from "./theme-config";
 import { visualDiff, visualDiffConfigured } from "./visual-diff";
@@ -123,7 +124,7 @@ export type PreviewOptions = {
  */
 export async function previewChange(siteId: string, change: unknown, options: PreviewOptions): Promise<ChangePreview> {
   const current = await readSiteTheme(siteId);
-  const candidate = await resolveUpdate(current, change);
+  const candidate = await resolveUpdate(current, change, await orgIdForSite(siteId));
   checkThemeUpdate(await readSitePolicy(siteId), current, candidate);
   const [liveTheme, candidateTheme] = await Promise.all([lockedPackage(current.lock.integrity), lockedPackage(candidate.lock.integrity)]);
   const budgets = budgetsFor(candidateTheme.manifest);

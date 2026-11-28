@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { databaseConfigured, query, transaction } from "@/lib/db/client";
 import { speedReportEnabled } from "./speed";
 import { checkThemeUpdate, readSitePolicy, withLockedTokens } from "./theme-policy";
-import { ensurePersonalOrg, requireFeature, siteAllows } from "@/lib/tenant/orgs";
+import { ensurePersonalOrg, orgIdForSite, requireFeature, siteAllows } from "@/lib/tenant/orgs";
 import type { ThemeManifest } from "@/lib/theme/manifest";
 import type { ThemePackage } from "@/lib/theme/package";
 import { orphanTokens, tokenDefs } from "@/lib/theme/tokens";
@@ -251,8 +251,8 @@ function fromRow(row: ConfigRow): SiteThemeConfig {
  * Locks to the newest registry version of the theme in range (#64). A theme
  * the registry does not list yet falls back to the copy bundled with the app.
  */
-async function lockTo(themeName: string, versionRange: string): Promise<{ version: string; integrity: string }> {
-  const published = await resolveVersion(themeName, versionRange);
+async function lockTo(themeName: string, versionRange: string, orgId: string | null = null): Promise<{ version: string; integrity: string }> {
+  const published = await resolveVersion(themeName, versionRange, orgId);
   if (published) return { version: published.version, integrity: published.integrity };
   const theme = bundledTheme(themeName);
   if (!theme) throw new ConfigError("themeName", "is not an available theme");
@@ -263,12 +263,12 @@ async function lockTo(themeName: string, versionRange: string): Promise<{ versio
 }
 
 /** Locks to the newest version of a theme, from the registry or else the bundled copy. */
-async function lockToLatest(themeName: string): Promise<{ version: string; integrity: string }> {
-  const published = await latestVersion(themeName);
+async function lockToLatest(themeName: string, orgId: string | null = null): Promise<{ version: string; integrity: string }> {
+  const published = await latestVersion(themeName, orgId);
   if (published) return { version: published.version, integrity: published.integrity };
   const theme = bundledTheme(themeName);
   if (!theme) throw new ConfigError("themeName", "is not an available theme");
-  return lockTo(themeName, theme.manifest.version);
+  return lockTo(themeName, theme.manifest.version, orgId);
 }
 
 /** The site's config; the first read stores the default theme, locked to its current version. */
@@ -294,7 +294,7 @@ export async function readSiteTheme(siteId: string): Promise<SiteThemeConfig> {
  */
 export async function updateSiteTheme(siteId: string, input: unknown): Promise<SiteThemeConfig> {
   const current = await readSiteTheme(siteId);
-  const next = await resolveUpdate(current, input);
+  const next = await resolveUpdate(current, input, await orgIdForSite(siteId));
   checkThemeUpdate(await readSitePolicy(siteId), current, next);
   // Changing either needs a paid plan on the hosted service; clearing never does.
   if (next.customCss !== current.customCss && next.customCss !== "") await requireFeature(siteId, "customCss");
@@ -309,7 +309,7 @@ export async function updateSiteTheme(siteId: string, input: unknown): Promise<S
  * The config an update would produce, without saving it: the same validation
  * and re-locking as a real update. Theme change previews (#66) render with it.
  */
-export async function resolveUpdate(current: SiteThemeConfig, input: unknown): Promise<SiteThemeConfig> {
+export async function resolveUpdate(current: SiteThemeConfig, input: unknown, orgId: string | null = null): Promise<SiteThemeConfig> {
   // Shape first, so a bad name or range fails before any lookup.
   const raw = isRecord(input) ? input : {};
   if (raw.themeName !== undefined && (typeof raw.themeName !== "string" || !THEME_NAME.test(raw.themeName))) {
@@ -323,7 +323,7 @@ export async function resolveUpdate(current: SiteThemeConfig, input: unknown): P
   let versionRange = shape.versionRange ?? (themeChanged ? "" : current.versionRange);
   let lock = current.lock;
   if (themeChanged || versionRange !== current.versionRange) {
-    lock = versionRange ? await lockTo(themeName, versionRange) : await lockToLatest(themeName);
+    lock = versionRange ? await lockTo(themeName, versionRange, orgId) : await lockToLatest(themeName, orgId);
     if (!versionRange) versionRange = `^${lock.version}`;
   }
   const target = await lockedPackage(lock.integrity);
@@ -436,8 +436,9 @@ export function orphans(config: Pick<SiteThemeConfig, "tokens" | "settings">, th
 export type AvailableTheme = { name: string; version: string; description: string; source: "registry" | "bundled" };
 
 /** Registry themes (newest installable version), plus bundled themes the registry does not list yet. */
-export async function availableThemes(): Promise<AvailableTheme[]> {
-  const published = databaseConfigured() ? await listThemes() : [];
+export async function availableThemes(siteId?: string): Promise<AvailableTheme[]> {
+  const orgId = siteId && databaseConfigured() ? await orgIdForSite(siteId) : null;
+  const published = databaseConfigured() ? await listThemes(orgId) : [];
   const out: AvailableTheme[] = published.map((v) => ({ name: v.name, version: v.version, description: v.description, source: "registry" }));
   for (const theme of bundledThemes()) {
     if (!out.some((t) => t.name === theme.manifest.name)) {

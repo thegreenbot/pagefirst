@@ -8,5 +8,5 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const site = await requireSite(request, "site-theme");
   if (!site.ok) return site.response;
-  return NextResponse.json({ themes: await availableThemes() });
+  return NextResponse.json({ themes: await availableThemes(site.siteId) });
 }
