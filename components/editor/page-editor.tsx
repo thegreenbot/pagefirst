@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DomainsPanel } from "@/components/editor/domains-panel";
 import { PreviewFrame } from "@/components/editor/preview-frame";
 import { applyOps } from "@/lib/page/ops";
 import { rebaseOps } from "@/lib/editor/rebase";
@@ -621,6 +622,7 @@ export function PageEditor({
             <ThemePicker current={theme.manifest.name} themes={themes} disabled={dirty} onStatus={setStatus} />
           ) : null}
           {hasSite ? <BrandPanel theme={theme} brand={brand} onChange={changeBrand} /> : null}
+          {hasSite ? <DomainsPanel /> : null}
           <MetadataEditor metadata={draft.metadata} onEdit={edit} />
         </aside>
       </main>
