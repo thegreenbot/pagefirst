@@ -26,20 +26,6 @@ export default async function EditPage({
   const drift = payload.changedInDoc;
   return (
     <>
-      {drift ? (
-        <p
-          role="status"
-          className="border-b border-rule bg-paper-2 px-5 py-2 text-sm text-ink"
-        >
-          This page was changed in Google Docs
-          {drift.modifiedBy ? ` by ${drift.modifiedBy}` : ""}
-          {drift.modifiedTime
-            ? ` on ${new Date(drift.modifiedTime).toISOString().slice(0, 16).replace("T", " ")} UTC`
-            : ""}{" "}
-          since you last saved or published it. What you see here is the Doc as
-          it is now.
-        </p>
-      ) : null}
       <PageEditor
         key={payload.page.fileId}
         initial={payload.page}
@@ -56,6 +42,7 @@ export default async function EditPage({
         presentation={context.presentation}
         themes={themes}
         nonce={nonce}
+        drift={drift ?? null}
       />
     </>
   );
