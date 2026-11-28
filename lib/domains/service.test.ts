@@ -86,7 +86,7 @@ describe("custom domain service", { skip: url ? false : "set TEST_DATABASE_URL t
     } finally {
       delete process.env.PUBLISH_DOMAIN;
     }
-    await assert.rejects(addSiteDomain(alice, "alice-site.com", deps), (e) => e instanceof DomainServiceError && e.code === "invalid" && /www\.alice-site\.com/.test(e.message));
+    await assert.rejects(addSiteDomain(alice, "alice-site.com", deps), (e) => e instanceof DomainServiceError && e.code === "invalid" && e.message.includes("www.alice-site.com"));
     await assert.rejects(addSiteDomain(alice, "https://x.alice-site.com/a", deps), (e) => e instanceof DomainServiceError && e.code === "invalid");
     await assert.rejects(addSiteDomain(alice, "x.alice-site.com", { ...deps, provider: null }), (e) => e instanceof DomainServiceError && e.code === "unavailable");
   });
