@@ -43,6 +43,22 @@ test("sample mode: open a page, edit, commit and publish a preview", async ({ pa
   expect(await page.content()).not.toContain("/api/media");
 });
 
+test("the preview renders after a client-side navigation, when the page nonce has changed", async ({ page }) => {
+  const violations: string[] = [];
+  page.on("console", (message) => {
+    if (/Content Security Policy/i.test(message.text())) violations.push(message.text());
+  });
+  await page.goto("/");
+  // Opening a page from the list is a client-side navigation: the server renders
+  // the editor with a new per-request nonce, but the browser enforces the first one.
+  await page.locator('a[href="/edit/about"]').click();
+  await expect(page).toHaveURL(/\/edit\/about$/);
+  const preview = page.frameLocator('iframe[title="Page preview"]');
+  // The first test renames this page, so wait for a heading and not for its text.
+  await expect(preview.getByRole("textbox", { name: "h1 text" })).toBeVisible();
+  expect(violations).toEqual([]);
+});
+
 test("the preview is sandboxed: theme code cannot reach the editor", async ({ page }) => {
   await page.goto("/edit/about");
   const iframe = page.locator('iframe[title="Page preview"]');
