@@ -139,3 +139,19 @@ export async function removeDomain(ownerSub: string, siteId: string, id: string)
   if (!rows[0]) throw new DomainError("not_found", "Domain not found");
   return toDomain(rows[0]);
 }
+
+/** One of the site's domains that has not been removed, or null. */
+export async function getDomain(ownerSub: string, siteId: string, id: string): Promise<SiteDomain | null> {
+  await requireOwnedSite(ownerSub, siteId);
+  const rows = await query<Row>(`SELECT ${COLUMNS} FROM site_domains WHERE id = $1 AND site_id = $2 AND status <> 'removed'`, [id, siteId]);
+  return rows[0] ? toDomain(rows[0]) : null;
+}
+
+/** Domains in the given states, least recently created first, for the re-verification sweep. */
+export async function listDomainsByStatus(statuses: DomainStatus[], limit: number): Promise<SiteDomain[]> {
+  const rows = await query<Row>(
+    `SELECT ${COLUMNS} FROM site_domains WHERE status = ANY($1::text[]) ORDER BY created_at, id LIMIT $2`,
+    [statuses, limit],
+  );
+  return rows.map(toDomain);
+}
