@@ -14,43 +14,55 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR, or to develop, supersedes the run in flight.
+# main, release and hotfix runs always finish.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/develop' }}
 
-# Each job name is a stable required status check on main and develop.
+# Each job name is a stable required status check on main and develop. A job
+# that is skipped reports success, so docs-only PRs stay mergeable.
+#
+# Minutes: jobs are billed per job, rounded up to the minute, so the cheap
+# checks share one install in `ci` instead of paying for five runners.
 jobs:
-  lint:
+  # Decides what this change touches. Pushes and merge groups run everything.
+  changes:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      theme: ${{ steps.diff.outputs.theme }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "22"
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          code=true; theme=true
+          if [ "$EVENT" = "pull_request" ]; then
+            if files=$(gh pr diff "$PR" --repo "$REPO" --name-only 2>/dev/null) && [ -n "$files" ]; then
+              # Docs-only: markdown, docs/, runbooks/, licence files.
+              if echo "$files" | grep -qvE '(\.md$|^docs/|^runbooks/|^(LICENSE|NOTICE|CLA\.md|TRADEMARKS\.md|\.github/CODEOWNERS)$)'; then code=true; else code=false; fi
+              # Theme budgets (Lighthouse) only matter when rendering changes.
+              if echo "$files" | grep -qE '^(themes/|lib/theme/|lib/page/|lib/publish/|scripts/theme-budgets|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then theme=true; else theme=false; fi
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "theme=$theme" >> "$GITHUB_OUTPUT"
 
-  typecheck:
+  # Lint, types, unit tests, coverage floor, theme byte budgets and the audit
+  # in one job: one checkout and one `npm ci` instead of five.
+  ci:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "22"
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     # Database tests (lib/db, sessions, audit) run against a throwaway Postgres.
     services:
       postgres:
@@ -76,45 +88,29 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - run: npm test
+      # Every step runs even if an earlier one failed, so one run reports all
+      # the failures. The job still fails.
+      - run: npm run lint
+      - if: success() || failure()
+        run: npm run typecheck
+      - if: success() || failure()
+        run: npm test
       # Unit coverage floor for lib/google and lib/guard (see package.json).
-      - run: npm run test:coverage
+      - if: success() || failure()
+        run: npm run test:coverage
       # Byte budgets for every first-party theme and fixture page (#58).
-      - run: npm run budgets
-
-  audit:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "22"
-          cache: npm
+      - if: success() || failure()
+        run: npm run budgets
       # Fails on critical advisories; see scripts/ci.mjs for why highs are reported only.
-      - run: npm audit --audit-level=critical
+      - if: success() || failure()
+        run: npm audit --audit-level=critical
 
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "22"
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-        env:
-          NEXT_TELEMETRY_DISABLED: "1"
-
-  # Route handlers over HTTP against the production build (fake Google in-process),
-  # then a Playwright smoke test of the editor in sample mode.
+  # Production build, route handlers over HTTP against it (fake Google
+  # in-process), then a Playwright smoke test of the editor in sample mode.
+  # The build here replaces the separate `build` job.
   integration:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -149,8 +145,15 @@ jobs:
       - run: npm run test:e2e
         env:
           CI: "true"
-      # Lighthouse budgets for first-party themes (#58): 3 runs per fixture page, median.
-      - run: npm run budgets:lighthouse
+      # Lighthouse budgets for first-party themes (#58): 3 runs per fixture
+      # page, median. About 2.5 minutes, so on a PR it runs only when the PR
+      # touches rendering or has the `lighthouse` label; pushes to develop,
+      # main, release and hotfix always run it.
+      - if: >-
+          github.event_name != 'pull_request' ||
+          needs.changes.outputs.theme == 'true' ||
+          contains(github.event.pull_request.labels.*.name, 'lighthouse')
+        run: npm run budgets:lighthouse
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
