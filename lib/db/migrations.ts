@@ -741,4 +741,27 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX theme_submissions_status_idx ON theme_submissions (status, created_at DESC);
     `,
   },
+  {
+    id: 33,
+    name: "custom domains for sites",
+    sql: `
+      -- A site's own domains (#181). A hostname is held by at most one site while it
+      -- is not removed; it only serves once its status is 'active' (#186).
+      CREATE TABLE site_domains (
+        id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        site_id            text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        hostname           text NOT NULL CHECK (hostname = lower(hostname)),
+        status             text NOT NULL DEFAULT 'pending'
+                           CHECK (status IN ('pending', 'verifying', 'active', 'error', 'removed')),
+        verification_token text NOT NULL,
+        provider_ref       text,
+        last_error         text,
+        created_at         timestamptz NOT NULL DEFAULT now(),
+        verified_at        timestamptz,
+        removed_at         timestamptz
+      );
+      CREATE UNIQUE INDEX site_domains_hostname_held_idx ON site_domains (hostname) WHERE status <> 'removed';
+      CREATE INDEX site_domains_site_idx ON site_domains (site_id, created_at);
+    `,
+  },
 ];
