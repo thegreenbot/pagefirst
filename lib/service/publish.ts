@@ -11,6 +11,7 @@ import { renderContextFor, siteForOwner } from "@/lib/site/theme-config";
 import { budgetWarnings, readSitePolicy } from "@/lib/site/theme-policy";
 import { databaseConfigured } from "@/lib/db/client";
 import { recordSitePage } from "@/lib/site/theme-preview";
+import { checkPublishLimits, PublishLimitError } from "@/lib/tenant/limits";
 import { requireScope, ServiceError, type ServiceContext } from "./context";
 import { getPage, googleFor } from "./pages";
 import { snapshotPage } from "./snapshots";
@@ -115,6 +116,7 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
     }
     try {
       const siteId = ctx.siteId ?? (await siteForOwner(ctx.actor.sub));
+      await checkPublishLimits(siteId, fileId);
       const uploaded = await siteHasRenditions(siteId, imagePlan.planned.map((image) => image.hash));
       const siteImages = await encodeMissing(imagePlan.planned, (image) => uploaded.has(image.hash));
       const published = await publishToSite(siteId, payload.page.path, { html, csp, preloads, assets: [...assets, ...siteImages.assets] });
@@ -127,6 +129,7 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
       return audit("ok", "public", published.siteId);
     } catch (error) {
       response.warning = error instanceof Error ? error.message : "Publishing failed";
+      if (error instanceof PublishLimitError) return audit("denied", `public:${error.code}:${error.limit}`);
       return audit("error", "public:upload_failed");
     }
   }
