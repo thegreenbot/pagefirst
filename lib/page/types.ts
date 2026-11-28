@@ -95,6 +95,20 @@ export type PageSummary = {
   revisionId: string;
   /** Drive's last-modified time, known only for live Docs. */
   modifiedTime?: string;
+  /**
+   * True when the Doc was edited outside Pagefirst since the last commit,
+   * publish or import (#30). Absent when Pagefirst has not touched the Doc yet.
+   */
+  changed?: boolean;
+};
+
+/** A Doc that moved on since Pagefirst last wrote or published it (#30). */
+export type ChangedInDoc = {
+  /** The revision the last snapshot was taken at. */
+  baseRevisionId: string;
+  /** When the Doc was last modified in Drive, and by whom, when Drive says. */
+  modifiedTime: string | null;
+  modifiedBy: string | null;
 };
 
 export type Library = {
@@ -105,6 +119,10 @@ export type Library = {
 export type PagePayload = {
   page: Page;
   sample: boolean;
+  /** Set when the Doc changed outside Pagefirst since its last snapshot. */
+  changedInDoc?: ChangedInDoc;
+  /** Suggested edits in the Doc that no one has accepted or rejected (live Docs only). */
+  pendingSuggestions?: number;
 };
 
 export type CommitSuccess = {

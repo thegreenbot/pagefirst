@@ -5,7 +5,8 @@ import { checkRateLimit, withRateLimit } from "@/lib/guard";
 import { rateLimitHeaders } from "@/lib/ratelimit";
 import { readTextCapped } from "@/lib/http/body";
 import { beginIdempotent, finishIdempotent, hashRequest, releaseIdempotent, validIdempotencyKey } from "@/lib/idempotency";
-import { ServiceError, type ServiceContext, type ServiceErrorCode } from "@/lib/service";
+import { applySiteHeader, ServiceError, type ServiceContext, type ServiceErrorCode } from "@/lib/service";
+import { isMcpRequest } from "./mcp-marker";
 
 /**
  * Shared plumbing for `/api/v1` (#37): bearer auth only (a cookie is never
@@ -29,6 +30,7 @@ export const API_ERROR_CODES = [
   "payload_too_large",
   "idempotency_mismatch",
   "in_progress",
+  "suggestions_pending",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
@@ -47,6 +49,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   payload_too_large: 413,
   idempotency_mismatch: 422,
   in_progress: 409,
+  suggestions_pending: 409,
 };
 
 const FROM_SERVICE: Record<ServiceErrorCode, ApiErrorCode> = {
@@ -59,6 +62,7 @@ const FROM_SERVICE: Record<ServiceErrorCode, ApiErrorCode> = {
   rate_limited: "rate_limited",
   upstream_quota: "google_quota",
   upstream_error: "upstream_error",
+  suggestions_pending: "suggestions_pending",
 };
 
 export function apiCodeFor(code: ServiceErrorCode): ApiErrorCode {
@@ -81,7 +85,7 @@ export function apiError(
 const IDEMPOTENT_BODY_MAX = 600 * 1024;
 
 /** Fields a handler adds to the audit event the wrapper records for its call. */
-export type AuditNote = Pick<AuditEvent, "fileId" | "baseRevisionId" | "resultRevisionId" | "ops" | "siteId" | "pagePath">;
+export type AuditNote = Pick<AuditEvent, "fileId" | "baseRevisionId" | "resultRevisionId" | "ops" | "siteId" | "pagePath" | "importId" | "docAuthor" | "changeCount">;
 
 export type V1Handler = (ctx: ServiceContext, request: Request, note: AuditNote, credential: Credential) => Promise<NextResponse | Response | object>;
 
@@ -112,6 +116,15 @@ export async function v1(
     return apiError(requestId, "rate_limited", "Too many requests.", null, rateLimitHeaders(limit));
   }
   const ctx: ServiceContext = { ...auth.ctx, requestId };
+  // Calls made by the MCP server are audited as `mcp`, whatever the credential kind.
+  if (isMcpRequest(request)) ctx.actor = { ...ctx.actor, client: "mcp" };
+  // X-Pagefirst-Site: act on an organization site the credential's owner may publish to (#45).
+  try {
+    await applySiteHeader(ctx, request);
+  } catch (error) {
+    if (!(error instanceof ServiceError)) throw error;
+    return apiError(requestId, apiCodeFor(error.code), error.message);
+  }
 
   // Mutating calls need an Idempotency-Key: a retried commit or publish runs once (#38).
   let claim: { credentialId: string; key: string } | null = null;
@@ -122,7 +135,7 @@ export async function v1(
     ctx.idempotencyKey = key;
     const read = await readTextCapped(request.clone(), IDEMPOTENT_BODY_MAX);
     if (!read.ok) return apiError(requestId, "payload_too_large", "Request body is too large.");
-    const hash = hashRequest(request.method, new URL(request.url).pathname, read.text);
+    const hash = hashRequest(request.method, new URL(request.url).pathname + (ctx.siteId ? `|site:${ctx.siteId}` : ""), read.text);
     let begun;
     try {
       begun = await beginIdempotent(auth.credential.id, key, hash);

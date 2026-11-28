@@ -14,7 +14,7 @@ const fileId = { name: "fileId", in: "path", required: true, schema: { type: "st
 
 export const openapi = {
   openapi: "3.1.0",
-  info: { title: "Pagefirst API", version: "1.0.0", description: "Create, edit and publish pages. Bearer credentials only; cookies are never accepted. Each operation has its own per-credential budget a minute (reads 120, create 20, commit 60, publish 6). Every response carries RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset; a 429 adds Retry-After. Google quota is separate: calls to Google are paced per account, and when the wait would be too long the call fails with google_quota, Retry-After set and nothing sent to Google." },
+  info: { title: "Pagefirst API", version: "1.0.0", description: "Create, edit and publish pages. Bearer credentials only; cookies are never accepted. Each operation has its own per-credential budget a minute (reads 120, create 20, commit 60, publish 6). Every response carries RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset; a 429 adds Retry-After. Send X-Pagefirst-Site: <siteId> to publish to, or change the theme of, an organization site you belong to (editor to publish, admin for theme changes); without it your own site is used. Google quota is separate: calls to Google are paced per account, and when the wait would be too long the call fails with google_quota, Retry-After set and nothing sent to Google." },
   servers: [{ url: "/api/v1" }],
   security: secured,
   paths: {
@@ -68,6 +68,7 @@ export const openapi = {
         parameters: [
           { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } },
           { name: "cursor", in: "query", schema: { type: "string" } },
+          { name: "changed", in: "query", description: "true lists only Docs edited in Google Docs since Pagefirst last committed, published or imported them. Each page's `changed` is true when so, and absent for a Doc Pagefirst has not touched.", schema: { type: "boolean" } },
         ],
         responses: { "200": { description: "A page of results with nextCursor" }, default: error },
       },
@@ -96,8 +97,18 @@ export const openapi = {
         operationId: "publishPage",
         summary: "Publish a pinned revision",
         parameters: [fileId, idempotencyKey],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["revisionId"], properties: { revisionId: { type: "string" }, public: { type: "boolean" } } } } } },
-        responses: { "200": { description: "Published" }, default: error },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["revisionId"], properties: { revisionId: { type: "string" }, public: { type: "boolean" }, importId: { type: "string", description: "An import of this page, to link the publish to it in the audit log." }, allowSuggestions: { type: "boolean", description: "Publish although the Doc has pending suggested edits, which the page will not include." } } } } } },
+        responses: { "200": { description: "Published" }, "409": { description: "revision_conflict if the Doc moved, suggestions_pending if it has unresolved suggestions" }, default: error },
+      },
+    },
+    "/pages/{fileId}/imports": {
+      post: {
+        operationId: "importPage",
+        summary: "Import changes made in the Google Doc",
+        description: "Adopts untracked content (named ranges only), diffs the Doc against the last snapshot Pagefirst took, and returns the change list, conflicts, what adopt did, pending suggestions (reported, not imported) and the Drive author. dryRun defaults to true and writes nothing. With dryRun false the Doc becomes the new base. `publish` imports and then publishes exactly the revision imported, unless a conflict needs a person; the import id links the snapshot, the audit entries and the publish.",
+        parameters: [fileId, idempotencyKey],
+        requestBody: { required: false, content: { "application/json": { schema: { type: "object", properties: { policy: { type: "string", enum: ["manual", "doc-wins", "draft-wins", "fail"], default: "doc-wins" }, dryRun: { type: "boolean", default: true }, publish: { type: "object", properties: { public: { type: "boolean" }, allowSuggestions: { type: "boolean" } } } } } } } },
+        responses: { "200": { description: "The import report" }, "409": { description: "revision_conflict if the Doc moved before publishing, suggestions_pending if the Doc has unresolved suggestions" }, default: error },
       },
     },
     "/jobs": {
@@ -106,7 +117,7 @@ export const openapi = {
         summary: "Start a bulk job (commit, publish, import, import_and_publish) over many pages",
         description: "Runs in the background as the credential's owner. Poll GET /jobs/{id}. dryRun reports what would happen without writing. Each item succeeds or fails on its own.",
         parameters: [idempotencyKey],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["kind", "items"], properties: { kind: { type: "string", enum: ["commit", "publish", "import", "import_and_publish"] }, items: { type: "array", items: { type: "object", required: ["fileId"], properties: { fileId: { type: "string" } } } }, dryRun: { type: "boolean" }, policy: { type: "object" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["kind"], properties: { kind: { type: "string", enum: ["commit", "publish", "import", "import_and_publish"] }, items: { type: "array", items: { type: "object", required: ["fileId"], properties: { fileId: { type: "string" }, revisionId: { type: "string", description: "Import jobs: the Doc revision a dry run reported (reviewedRevisionId). A Doc that moved since is skipped as revision_moved." }, policy: { type: "string", enum: ["manual", "doc-wins", "draft-wins", "fail"] } } } }, changed: { type: "boolean", description: "Import jobs: use in place of items to take every Doc edited in Google Docs since its last snapshot." }, dryRun: { type: "boolean" }, policy: { type: "object" }, webhook: { type: "object", required: ["url", "secret"], description: "Called once with a signed JSON body when the job finishes: Pagefirst-Signature is t=<unix>,v1=HMAC-SHA256(secret, \"<t>.<body>\"). https and a public host only; retried 4 times with backoff.", properties: { url: { type: "string" }, secret: { type: "string", minLength: 16 } } } } } } } },
         responses: { "202": { description: "Accepted" }, default: error },
       },
     },

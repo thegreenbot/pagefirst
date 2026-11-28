@@ -552,4 +552,82 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE site_pages ADD COLUMN render_key text;
     `,
   },
+  {
+    id: 22,
+    name: "job webhooks",
+    sql: `
+      -- Completion webhook for a bulk job (#40). The secret is sealed; a job
+      -- queues its delivery when it settles, and attempts back off from there.
+      ALTER TABLE jobs
+        ADD COLUMN webhook_url text,
+        ADD COLUMN webhook_secret text,
+        ADD COLUMN webhook_state text NOT NULL DEFAULT 'none' CHECK (webhook_state IN ('none', 'pending', 'sent', 'failed')),
+        ADD COLUMN webhook_attempts integer NOT NULL DEFAULT 0,
+        ADD COLUMN webhook_next_at timestamptz;
+      CREATE INDEX jobs_webhook_due_idx ON jobs (webhook_next_at) WHERE webhook_state = 'pending';
+    `,
+  },
+  {
+    id: 24,
+    name: "page snapshots",
+    sql: `
+      -- The parsed page at each commit, public publish and import (#29, ADR 0006).
+      -- An import diffs the Doc against the newest of these. Retention keeps the
+      -- newest 20 per Doc and always the newest published one.
+      CREATE TABLE page_snapshots (
+        id bigserial PRIMARY KEY,
+        file_id text NOT NULL,
+        revision_id text NOT NULL,
+        source text NOT NULL CHECK (source IN ('commit', 'publish', 'import')),
+        actor_sub text,
+        content_hash text NOT NULL,
+        doc_modified_time timestamptz,
+        modified_by text,
+        page jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (file_id, revision_id, source)
+      );
+      CREATE INDEX page_snapshots_file_idx ON page_snapshots (file_id, id DESC);
+      CREATE INDEX page_snapshots_published_idx ON page_snapshots (file_id, id DESC) WHERE source = 'publish';
+    `,
+  },
+  {
+    id: 25,
+    name: "job site",
+    sql: `
+      -- The organization site a job publishes to, when the caller chose one (#45).
+      ALTER TABLE jobs ADD COLUMN site_id text;
+    `,
+  },
+  {
+    id: 26,
+    name: "page imports",
+    sql: `
+      -- One row per import of Doc changes (#34, ADR 0006), dry runs included. The
+      -- import id links the Doc revision, the snapshot, the audit entry and a later publish.
+      CREATE TABLE page_imports (
+        id text PRIMARY KEY,
+        file_id text NOT NULL,
+        actor_sub text,
+        policy text NOT NULL,
+        dry_run boolean NOT NULL,
+        from_revision_id text,
+        to_revision_id text NOT NULL,
+        change_count integer NOT NULL,
+        conflict_count integer NOT NULL,
+        adopted integer NOT NULL DEFAULT 0,
+        suggestions integer NOT NULL DEFAULT 0,
+        doc_author text,
+        doc_modified_time timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX page_imports_file_idx ON page_imports (file_id, created_at DESC);
+      ALTER TABLE page_snapshots ADD COLUMN import_id text;
+      ALTER TABLE audit_events
+        ADD COLUMN import_id text,
+        ADD COLUMN doc_author text,
+        ADD COLUMN change_count integer,
+        ADD COLUMN job_id text;
+    `,
+  },
 ];

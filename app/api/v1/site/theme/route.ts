@@ -23,7 +23,7 @@ export function PUT(request: Request) {
     "v1-site-theme-set",
     20,
     async (ctx) => {
-      const siteId = await ownSite(ctx, "pages:publish");
+      const siteId = await ownSite(ctx, "pages:publish", true);
       const body = await readJson(request, 256 * 1024);
       try {
         return await describe(siteId, await updateSiteTheme(siteId, body));

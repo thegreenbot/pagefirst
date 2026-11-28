@@ -13,8 +13,8 @@ By opening a pull request or otherwise submitting a contribution, you agree that
 
 ## How to sign
 
-Add this line to the description of your first pull request, or answer it when asked:
+Reply to the CLA bot's comment on your first pull request with this sentence:
 
 > I have read the Pagefirst Contributor License Agreement and agree to it.
 
-A maintainer records the agreement against your GitHub account. Contributions of a few lines, such as typo fixes, may be accepted without one at the maintainer's discretion.
+The signature is recorded against your GitHub account in this repository (the `cla-signatures` branch), so you sign once. Contributions of a few lines, such as typo fixes, may be accepted without one at the maintainer's discretion.
