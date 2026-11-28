@@ -6,6 +6,7 @@ Code in this folder (SCIM provisioning, domain-lock administration) is licensed 
 | --- | --- |
 | SCIM 2.0 Users and Groups | `enterprise/scim/`, routes under `app/api/scim/v2/` |
 | Theme governance admin: policy and org theme audit | `app/api/orgs/[orgId]/theme-policy`, `app/api/orgs/[orgId]/theme-audit` (the table and checks are core: `lib/site/theme-policy.ts`) |
+| Private themes per organization | `app/api/orgs/[orgId]/themes` (ownership and visibility are core: `owner_org` on `theme_versions`, `lib/theme/registry-store.ts`) |
 | SCIM tokens and domain-lock admin | `enterprise/scim/tokens.ts`, `app/api/orgs/[orgId]/scim-tokens`, `app/api/orgs/[orgId]/domain` |
 
 Rules for this folder:

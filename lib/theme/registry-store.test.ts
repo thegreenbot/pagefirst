@@ -7,7 +7,8 @@ import { aboutFixture } from "@/lib/page/fixture";
 import { renderPageHtml } from "@/lib/page/render";
 import { availableThemes, readSiteTheme, renderContextFor, siteForOwner, updateSiteTheme } from "@/lib/site/theme-config";
 import { readThemeDir } from "./package";
-import { clearVerifiedCache, latestVersion, listThemes, loadVerifiedVersion, publishVersion, resolveVersion, yankVersion } from "./registry-store";
+import { orgIdForSite } from "@/lib/tenant/orgs";
+import { clearVerifiedCache, latestVersion, listThemes, loadVerifiedVersion, privateScope, publishVersion, resolveVersion, yankVersion } from "./registry-store";
 import { archiveIntegrity, packTheme } from "./tarball";
 
 const url = testDatabaseUrl();
@@ -134,5 +135,36 @@ describe("theme registry (#64)", { skip: url ? false : "set TEST_DATABASE_URL to
     clearVerifiedCache();
     assert.equal((await renderContextFor("yank-owner", "about")).theme.manifest.version, def.version);
     assert.notEqual(next.integrity, def.integrity);
+  });
+
+  test("a private theme is listed and installable only for its organization's sites (#69)", async () => {
+    const siteA = await siteForOwner("private-a");
+    const siteB = await siteForOwner("private-b");
+    const orgA = (await orgIdForSite(siteA))!;
+    const name = `@${privateScope(orgA)}/brand`;
+    const archive = archiveOf("themes/default", (m) => {
+      m.name = name;
+      m.version = "1.0.0";
+    });
+    const published = await publishVersion(archive, { source: "org-upload" }, null, undefined, orgA);
+    assert.equal(published.name, name);
+
+    assert.ok(!(await listThemes()).some((t) => t.name === name), "not in the public listing");
+    assert.ok((await listThemes(orgA)).some((t) => t.name === name), "in its owner's");
+    assert.equal(await resolveVersion(name, "^1.0.0"), null);
+    assert.equal((await resolveVersion(name, "^1.0.0", orgA))?.version, "1.0.0");
+    assert.ok((await availableThemes(siteA)).some((t) => t.name === name));
+    assert.ok(!(await availableThemes(siteB)).some((t) => t.name === name));
+
+    await updateSiteTheme(siteA, { themeName: name });
+    assert.equal((await readSiteTheme(siteA)).themeName, name);
+    await assert.rejects(updateSiteTheme(siteB, { themeName: name }), /not an available theme/);
+    // It keeps rendering for its owner after other themes change.
+    assert.ok((await renderContextFor("private-a", "doc")).theme.manifest.name === name);
+  });
+
+  test("a name can't be claimed both publicly and privately", async () => {
+    const orgA = (await orgIdForSite(await siteForOwner("private-a")))!;
+    await assert.rejects(publishVersion(archiveOf("themes/default", (m) => (m.version = "9.9.9")), provenance, null, undefined, orgA), /belongs to another publisher/);
   });
 });

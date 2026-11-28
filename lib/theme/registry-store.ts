@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { query } from "@/lib/db/client";
 import { budgetsFor, checkBudgets, measure, type Breach } from "./budgets";
 import { nodeOptimizer, publishedCsp } from "./csp";
@@ -58,6 +59,8 @@ export async function publishVersion(
   scores: Record<string, unknown> | null = null,
   /** Called with the loaded manifest before anything is signed or stored; throws to refuse the publisher. */
   authorize?: (manifest: ThemeManifest) => void,
+  /** The organization that owns a private version (#69); null publishes to the public registry. */
+  ownerOrg: string | null = null,
 ): Promise<ThemeVersion> {
   let theme: ThemePackage;
   try {
@@ -74,12 +77,15 @@ export async function publishVersion(
   }
   const integrity = archiveIntegrity(archive);
   const signature = countersign(name, version, integrity);
+  // A name belongs to whoever published it first: a public name is never claimed privately, and the reverse.
+  const owners = await query<{ owner_org: string | null }>("SELECT DISTINCT owner_org FROM theme_versions WHERE name = $1", [name]);
+  if (owners.some((row) => row.owner_org !== ownerOrg)) throw new RegistryError(`${name} belongs to another publisher`);
   const rows = await query<{ published_at: Date }>(
-    `INSERT INTO theme_versions (name, version, integrity, archive, manifest, budgets, scores, provenance, countersignature)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO theme_versions (name, version, integrity, archive, manifest, budgets, scores, provenance, countersignature, owner_org)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT DO NOTHING
      RETURNING published_at`,
-    [name, version, integrity, Buffer.from(archive), JSON.stringify(theme.manifest), JSON.stringify(measured), scores ? JSON.stringify(scores) : null, JSON.stringify(provenance), signature],
+    [name, version, integrity, Buffer.from(archive), JSON.stringify(theme.manifest), JSON.stringify(measured), scores ? JSON.stringify(scores) : null, JSON.stringify(provenance), signature, ownerOrg],
   );
   if (!rows[0]) throw new RegistryError(`${name}@${version} is already published; versions are immutable`);
   return {
@@ -129,14 +135,17 @@ function compareVersions(a: string, b: string): number {
   return Number(!a.includes("-")) - Number(!b.includes("-"));
 }
 
-export async function listVersions(name: string): Promise<ThemeVersion[]> {
-  const rows = await query<VersionRow>(`SELECT ${COLUMNS} FROM theme_versions WHERE name = $1`, [name]);
+/** Public versions, plus the private ones `orgId` owns (#69). */
+const VISIBLE = "(owner_org IS NULL OR owner_org = $1)";
+
+export async function listVersions(name: string, orgId: string | null = null): Promise<ThemeVersion[]> {
+  const rows = await query<VersionRow>(`SELECT ${COLUMNS} FROM theme_versions WHERE name = $2 AND ${VISIBLE}`, [orgId, name]);
   return rows.map(fromRow).sort((a, b) => compareVersions(b.version, a.version));
 }
 
 /** The newest installable version of each theme. */
-export async function listThemes(): Promise<ThemeVersion[]> {
-  const rows = await query<VersionRow>(`SELECT ${COLUMNS} FROM theme_versions WHERE yanked_at IS NULL`);
+export async function listThemes(orgId: string | null = null): Promise<ThemeVersion[]> {
+  const rows = await query<VersionRow>(`SELECT ${COLUMNS} FROM theme_versions WHERE yanked_at IS NULL AND ${VISIBLE}`, [orgId]);
   const latest = new Map<string, ThemeVersion>();
   for (const version of rows.map(fromRow)) {
     const current = latest.get(version.name);
@@ -146,13 +155,13 @@ export async function listThemes(): Promise<ThemeVersion[]> {
 }
 
 /** The newest version in range that is not yanked: what a new lock resolves to. */
-export async function resolveVersion(name: string, range: string): Promise<ThemeVersion | null> {
-  return (await listVersions(name)).find((version) => !version.yanked && satisfies(version.version, range)) ?? null;
+export async function resolveVersion(name: string, range: string, orgId: string | null = null): Promise<ThemeVersion | null> {
+  return (await listVersions(name, orgId)).find((version) => !version.yanked && satisfies(version.version, range)) ?? null;
 }
 
 /** The newest version that is not yanked. */
-export async function latestVersion(name: string): Promise<ThemeVersion | null> {
-  return (await listVersions(name)).find((version) => !version.yanked) ?? null;
+export async function latestVersion(name: string, orgId: string | null = null): Promise<ThemeVersion | null> {
+  return (await listVersions(name, orgId)).find((version) => !version.yanked) ?? null;
 }
 
 /** Yanking stops new installs; sites already locked to the version keep rendering it. */
@@ -194,4 +203,15 @@ export async function loadVerifiedVersion(integrity: string): Promise<ThemePacka
 /** For tests: forget verified packages so the next load checks the stored bytes again. */
 export function clearVerifiedCache(): void {
   verified.clear();
+}
+
+/** The name scope an organization's private themes live under: `@org-<12 hex>/name`. */
+export function privateScope(orgId: string): string {
+  return `org-${createHash("sha256").update(orgId).digest("hex").slice(0, 12)}`;
+}
+
+/** Private versions an organization owns, newest first, yanked ones included. */
+export async function listOrgVersions(orgId: string): Promise<ThemeVersion[]> {
+  const rows = await query<VersionRow>(`SELECT ${COLUMNS} FROM theme_versions WHERE owner_org = $1`, [orgId]);
+  return rows.map(fromRow).sort((a, b) => a.name.localeCompare(b.name) || compareVersions(b.version, a.version));
 }

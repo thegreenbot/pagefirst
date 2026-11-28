@@ -26,7 +26,7 @@ const BEACON_ROUTES = [/^\/api\/vitals$/];
 const FORM_ROUTES = [/^\/api\/oauth\/(token|revoke)$/];
 
 /** Routes whose body, when there is one, must be JSON. */
-const JSON_ROUTES = [/^\/api\/billing\/(checkout|portal)$/, /^\/api\/orgs\/[^/]+\/(scim-tokens|domain|theme-policy)$/, /^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/, /^\/api\/keys$/, ...TOKEN_ROUTES];
+const JSON_ROUTES = [/^\/api\/billing\/(checkout|portal)$/, /^\/api\/orgs\/[^/]+\/(scim-tokens|domain|theme-policy|themes)$/, /^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/, /^\/api\/keys$/, ...TOKEN_ROUTES];
 
 function configuredOrigin(): string | null {
   const value = process.env.APP_URL?.trim();

@@ -665,4 +665,14 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    id: 29,
+    name: "private theme versions",
+    sql: `
+      -- A version owned by one organization (#69) is installable and listed only for its sites.
+      -- NULL is the public registry. Set when the version is written, never changed.
+      ALTER TABLE theme_versions ADD COLUMN owner_org text;
+      CREATE INDEX theme_versions_owner_idx ON theme_versions (owner_org) WHERE owner_org IS NOT NULL;
+    `,
+  },
 ];
