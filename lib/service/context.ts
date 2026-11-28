@@ -56,6 +56,8 @@ export type ServiceErrorCode =
   | "unsupported"
   | "rate_limited"
   | "upstream_quota"
+  /** The Doc has suggested edits no one has accepted or rejected, so publishing it would drop them. */
+  | "suggestions_pending"
   | "upstream_error";
 
 const STATUS: Record<ServiceErrorCode, number> = {
@@ -67,6 +69,7 @@ const STATUS: Record<ServiceErrorCode, number> = {
   unsupported: 501,
   rate_limited: 429,
   upstream_quota: 429,
+  suggestions_pending: 409,
   upstream_error: 502,
 };
 

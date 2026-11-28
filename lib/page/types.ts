@@ -121,6 +121,8 @@ export type PagePayload = {
   sample: boolean;
   /** Set when the Doc changed outside Pagefirst since its last snapshot. */
   changedInDoc?: ChangedInDoc;
+  /** Suggested edits in the Doc that no one has accepted or rejected (live Docs only). */
+  pendingSuggestions?: number;
 };
 
 export type CommitSuccess = {

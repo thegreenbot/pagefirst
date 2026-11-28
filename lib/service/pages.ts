@@ -1,4 +1,5 @@
 import { databaseConfigured } from "@/lib/db/client";
+import { countSuggestions } from "@/lib/google/suggestions";
 import { planAdopt, type AdoptReport } from "@/lib/google/adopt";
 import { annotateChanged, changedInDoc } from "./changes";
 import { snapshotPage } from "./snapshots";
@@ -72,7 +73,7 @@ export function googleFor(ctx: ServiceContext): GoogleClient {
  * and no way to look up a file's folder, the call is refused. Sample pages
  * are not in any folder, so a restricted credential cannot reach them.
  */
-async function requireFolder(ctx: ServiceContext, fileId: string): Promise<void> {
+export async function requireFolder(ctx: ServiceContext, fileId: string): Promise<void> {
   if (!ctx.siteFolders) return;
   const token = ctx.googleToken;
   const parentsOf = googleFor(ctx).parentsOf;
@@ -133,7 +134,8 @@ export async function getPage(ctx: ServiceContext, fileId: string): Promise<Page
           return { modifiedTime: meta.modifiedTime, modifiedBy: meta.lastModifiedBy?.email ?? meta.lastModifiedBy?.name ?? null };
         })
       : null;
-    return { page, sample: false, ...(drift ? { changedInDoc: drift } : {}) };
+    const suggestions = countSuggestions(doc);
+    return { page, sample: false, ...(drift ? { changedInDoc: drift } : {}), ...(suggestions > 0 ? { pendingSuggestions: suggestions } : {}) };
   } catch (err) {
     const typed = toServiceError(err, "Could not read the page.", (text) => redact(text, token));
     if (typed.code === "not_found") return null;
