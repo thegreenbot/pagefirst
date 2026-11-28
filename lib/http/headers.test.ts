@@ -12,6 +12,13 @@ describe("appContentSecurityPolicy", () => {
     assert.match(policy, /base-uri 'none'/);
   });
 
+  test("allows the Google Picker only when it is configured", () => {
+    assert.doesNotMatch(appContentSecurityPolicy("n", { picker: false }), /docs\.google\.com/);
+    const policy = appContentSecurityPolicy("n", { picker: true });
+    assert.match(policy, /frame-src https:\/\/docs\.google\.com/);
+    assert.match(policy, /connect-src 'self' https:\/\/apis\.google\.com/);
+  });
+
   test("adds eval and websockets only for the dev server", () => {
     const policy = appContentSecurityPolicy("n", { dev: true });
     assert.match(policy, /'unsafe-eval'/);

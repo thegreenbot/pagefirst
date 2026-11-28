@@ -21,7 +21,7 @@ export const SECURITY_HEADERS: { key: string; value: string }[] = [
  * its own scripts when it sees the policy on the request. Styles allow inline
  * because React renders `style` attributes; scripts never do.
  */
-export function appContentSecurityPolicy(nonce: string, { dev = false } = {}): string {
+export function appContentSecurityPolicy(nonce: string, { dev = false, picker = !!process.env.GOOGLE_PICKER_API_KEY } = {}): string {
   const script = ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'"];
   // React's dev overlay and fast refresh evaluate code; production never does.
   if (dev) script.push("'unsafe-eval'");
@@ -29,9 +29,11 @@ export function appContentSecurityPolicy(nonce: string, { dev = false } = {}): s
     "default-src 'self'",
     `script-src ${script.join(" ")}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    `img-src 'self' data: blob:${picker ? " https://*.gstatic.com https://*.googleusercontent.com" : ""}`,
     "font-src 'self' data:",
-    `connect-src 'self'${dev ? " ws:" : ""}`,
+    `connect-src 'self'${picker ? " https://apis.google.com" : ""}${dev ? " ws:" : ""}`,
+    // The Google Picker is an iframe from docs.google.com, opened only when the person asks to open a Doc.
+    ...(picker ? ["frame-src https://docs.google.com https://accounts.google.com"] : []),
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",

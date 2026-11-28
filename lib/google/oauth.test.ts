@@ -143,3 +143,12 @@ describe("exchangeCode", () => {
     await assert.rejects(exchangeCode({ origin: "https://a", code: "c", verifier: "v" }), /No access token/);
   });
 });
+
+describe("googleScopes (#15)", () => {
+  test("narrow mode asks for drive.file and identity only", async () => {
+    const { googleScopes } = await import("./oauth");
+    const narrow = googleScopes("narrow");
+    assert.deepEqual(narrow, ["openid", "email", "profile", "https://www.googleapis.com/auth/drive.file"]);
+    assert.ok(googleScopes(undefined).includes("https://www.googleapis.com/auth/documents"));
+  });
+});
