@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auditRequest } from "@/lib/audit-request";
 import { configErrorResponse, readJsonBody, requireSite } from "@/lib/site/request";
 import { lockedPackage, orphans, readSiteTheme, updateSiteTheme, type SiteThemeConfig } from "@/lib/site/theme-config";
+import { PlanError } from "@/lib/tenant/plans";
 import { tokenDefs } from "@/lib/theme/tokens";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const site = await requireSite(request, "site-theme");
+  const site = await requireSite(request, "site-theme", "admin");
   if (!site.ok) return site.response;
   const read = await readJsonBody(request);
   if (!read.ok) return read.response;
@@ -42,7 +43,8 @@ export async function PUT(request: Request) {
     await auditRequest(request, { event: "site.theme.update", outcome: "ok" });
     return NextResponse.json(await describe(config));
   } catch (error) {
-    await auditRequest(request, { event: "site.theme.update", outcome: "error", status: 400, errorCode: "invalid_config" });
+    const plan = error instanceof PlanError;
+    await auditRequest(request, { event: "site.theme.update", outcome: "error", status: plan ? 402 : 400, errorCode: plan ? "plan_required" : "invalid_config" });
     return configErrorResponse(error);
   }
 }

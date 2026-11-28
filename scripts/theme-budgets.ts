@@ -9,7 +9,7 @@
  * using Playwright's Chromium (CHROME_PATH overrides it).
  */
 import { createServer, type Server } from "node:http";
-import { readdirSync } from "node:fs";
+import { readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { budgetsFor, checkBudgets, measure, shipsJs } from "@/lib/theme/budgets";
 import { nodeOptimizer, publishedCsp } from "@/lib/theme/csp";
@@ -44,11 +44,17 @@ async function fixtureImage(id: string) {
   return { mime: "image/jpeg", bytes: new Uint8Array(bytes) };
 }
 
-async function renderAll(): Promise<Rendered[]> {
+/** The value after a flag, e.g. `--theme editorial`. */
+function flag(name: string): string | undefined {
+  const at = process.argv.indexOf(name);
+  return at === -1 ? undefined : process.argv[at + 1];
+}
+
+async function renderAll(only?: string): Promise<Rendered[]> {
   const root = path.join(process.cwd(), "themes");
   const out: Rendered[] = [];
   for (const dir of readdirSync(root, { withFileTypes: true })) {
-    if (!dir.isDirectory()) continue;
+    if (!dir.isDirectory() || (only && dir.name !== only)) continue;
     const theme = loadThemeFromDir(path.join(root, dir.name));
     const budgets = budgetsFor(theme.manifest);
     for (const fixture of themeFixtures(theme.manifest)) {
@@ -106,7 +112,9 @@ function serve(pages: Rendered[]): Promise<{ server: Server; origin: string }> {
 
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 
-async function lighthouseBudgets(pages: Rendered[], runs: number): Promise<string[]> {
+type Scores = Record<string, { performance: number; accessibility: number; lcpMs: number; cls: number; tbtMs: number }>;
+
+async function lighthouseBudgets(pages: Rendered[], runs: number, scores: Scores): Promise<string[]> {
   const { default: lighthouse } = await import("lighthouse");
   const { chromium } = await import("@playwright/test");
   const port = 9300 + Math.floor(Math.random() * 500);
@@ -144,6 +152,7 @@ async function lighthouseBudgets(pages: Rendered[], runs: number): Promise<strin
         cls: median(samples.map((s) => s.cls)),
         tbtMs: median(samples.map((s) => s.tbtMs)),
       };
+      scores[fixture] = { ...m, lcpMs: Math.round(m.lcpMs), tbtMs: Math.round(m.tbtMs) };
       console.log(
         `${theme} ${fixture}: performance ${m.performance}, accessibility ${m.accessibility}, LCP ${Math.round(m.lcpMs)} ms, CLS ${m.cls.toFixed(3)}, TBT ${Math.round(m.tbtMs)} ms${shipsJs(result) ? "" : " (no JS, not enforced)"} (median of ${runs})`,
       );
@@ -162,12 +171,18 @@ async function lighthouseBudgets(pages: Rendered[], runs: number): Promise<strin
 }
 
 async function main() {
-  const pages = await renderAll();
+  // --theme <dir> measures one theme; --scores <file> writes its Lighthouse medians for the registry (#64).
+  const only = flag("--theme");
+  const pages = await renderAll(only);
+  if (only && pages.length === 0) throw new Error(`themes/${only} does not exist`);
   const failures = byteBudgets(pages);
+  const scores: Scores = {};
   if (process.argv.includes("--lighthouse")) {
     const runs = Number(process.env.LIGHTHOUSE_RUNS ?? 3);
-    failures.push(...(await lighthouseBudgets(pages, runs)));
+    failures.push(...(await lighthouseBudgets(pages, runs, scores)));
   }
+  const scoresFile = flag("--scores");
+  if (scoresFile) writeFileSync(scoresFile, `${JSON.stringify(scores, null, 2)}\n`);
   if (failures.length) {
     console.error(`\n${failures.length} budget breach${failures.length === 1 ? "" : "es"}:`);
     for (const failure of failures) console.error(`  ${failure}`);

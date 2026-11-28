@@ -175,7 +175,7 @@ type Op =
 Server sequence:
 
 1. `documents.get` with the user's token.
-2. If `revisionId` differs from `baseRevisionId`, return 409 and the freshly parsed page. The client keeps the draft on screen and offers to reload. The first version does not merge.
+2. If `revisionId` differs from `baseRevisionId`, return 409 and the freshly parsed page. The client keeps the draft on screen and offers to reload. Commit does not merge; reconciling Doc edits is the import flow (`docs/adr/0006-import-model.md`).
 3. Resolve every `nodeId` through its named range. Reject the commit if any op overlaps an opaque span.
 4. Build `batchUpdate` requests. Apply index-sensitive requests from the highest index downward. When an insert's index depends on a range created earlier in the same commit, split into a second batch and re-read ranges in between.
 5. Re-read the Doc. Return the new `revisionId` and the parsed page.
@@ -289,5 +289,6 @@ These have no slice because each one breaks the Doc as a readable source, or nee
 | CDN | Cloudflare Pages Direct Upload. Local `./out` when the token is absent. |
 | Shareable preview host | After slice 4. The editor is the preview until then. |
 | Database | Neon Postgres for sessions, tokens, audit, snapshots and site config; Upstash Redis for shared rate limits. See `docs/adr/0001-persistent-store.md`. |
-| Conflict policy | 409 and reload. No merge in the first version. |
+| Machine auth | Scoped API keys tied to the user's stored Google grant; OAuth 2.1 for MCP. No Workspace service account. See `docs/adr/0003-machine-authentication.md`. |
+| Conflict policy | Commit: `revision_conflict` on a stale base. Import: per-request `manual`, `doc-wins`, `draft-wins` or `fail`, node-level, against a stored base snapshot. See `docs/adr/0006-import-model.md`. |
 | Stack | Next.js and TypeScript, when implementation starts. |

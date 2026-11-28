@@ -2,12 +2,18 @@ import { NextResponse } from "next/server";
 import { databaseConfigured } from "@/lib/db/client";
 import { callerKey, checkRateLimit, requireGoogleWriter, tooManyRequests } from "@/lib/guard";
 import { readTextCapped } from "@/lib/http/body";
+import { canAccessSite, type Role } from "@/lib/tenant/orgs";
+import { PlanError } from "@/lib/tenant/plans";
 import { ConfigError, siteForOwner } from "./theme-config";
 
 const MAX_BODY = 512 * 1024;
 
 /** The caller's site, or the response to send instead. Site settings need a signed-in owner and Postgres. */
-export async function requireSite(request: Request, bucket: string): Promise<{ ok: true; siteId: string } | { ok: false; response: NextResponse }> {
+export async function requireSite(
+  request: Request,
+  bucket: string,
+  minimum: Role = "viewer",
+): Promise<{ ok: true; siteId: string } | { ok: false; response: NextResponse }> {
   const writer = await requireGoogleWriter();
   if (!writer.ok) return { ok: false, response: NextResponse.json({ error: writer.error }, { status: 401 }) };
   if (!writer.sub || !databaseConfigured()) {
@@ -18,7 +24,17 @@ export async function requireSite(request: Request, bucket: string): Promise<{ o
   }
   const limit = await checkRateLimit(bucket, callerKey(writer.token, request, writer.sub), 60);
   if (!limit.ok) return { ok: false, response: tooManyRequests("Too many changes. Wait a moment.", limit) };
-  return { ok: true, siteId: await siteForOwner(writer.sub) };
+  // The caller's own site by default; a member of an organization picks one of its sites with X-Pagefirst-Site.
+  const requested = request.headers.get("x-pagefirst-site");
+  if (!requested) return { ok: true, siteId: await siteForOwner(writer.sub) };
+  // A site the caller can't use looks the same as one that doesn't exist.
+  if (!/^[\w-]{1,64}$/.test(requested) || !(await canAccessSite(writer.sub, requested, "viewer"))) {
+    return { ok: false, response: NextResponse.json({ error: "Site not found" }, { status: 404 }) };
+  }
+  if (!(await canAccessSite(writer.sub, requested, minimum))) {
+    return { ok: false, response: NextResponse.json({ error: `This needs the ${minimum} role in the site's organization.` }, { status: 403 }) };
+  }
+  return { ok: true, siteId: requested };
 }
 
 export async function readJsonBody(request: Request): Promise<{ ok: true; body: unknown } | { ok: false; response: NextResponse }> {
@@ -32,6 +48,7 @@ export async function readJsonBody(request: Request): Promise<{ ok: true; body: 
 }
 
 export function configErrorResponse(error: unknown): NextResponse {
+  if (error instanceof PlanError) return NextResponse.json({ error: error.message, feature: error.feature, upgrade: true }, { status: 402 });
   if (error instanceof ConfigError) return NextResponse.json({ error: error.message, path: error.path }, { status: 400 });
   throw error;
 }
