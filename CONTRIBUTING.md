@@ -51,6 +51,16 @@ Terraform also creates the **page-first PR CI** automation, which runs `npm run 
 
 `.github/workflows/ci.yml` runs the same `npm run ci` command if a CI app such as Depot or Buildkite is connected to the Origin repo.
 
+## Vercel deploys
+
+Vercel Hobby allows 100 deployments a day, so builds are opt-in (`scripts/vercel-ignore.sh`):
+
+- `main` always builds the production site.
+- Pushes to `develop`, `feature/*` and any branch without an open PR never build.
+- A PR preview builds only when the latest commit message contains `[preview]`, for example `git commit --allow-empty -m "Preview [preview]"` after the PR exists. The tag must be on the newest commit; a later commit without it is skipped.
+- CI (lint, typecheck, test, build, integration) runs on every PR regardless.
+- Merge to `main` as batched `release/vX.Y.Z` PRs, not one merge per feature.
+
 ## Secrets
 
 Secrets live only in the deployment environment, never in the repository. That covers `GOOGLE_CLIENT_SECRET`, `CLOUDFLARE_API_TOKEN`, the token-encryption key, and `CURSOR_TOKEN` for `infra/git-flow`, which is only exported in the shell that runs Terraform.
