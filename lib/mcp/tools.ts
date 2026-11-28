@@ -15,6 +15,9 @@ import * as decisionsRoute from "@/app/api/v1/content-audit/decisions/route";
 import * as themesRoute from "@/app/api/v1/themes/route";
 import * as siteThemeRoute from "@/app/api/v1/site/theme/route";
 import * as themePreviewRoute from "@/app/api/v1/site/theme/preview/route";
+import * as domainsRoute from "@/app/api/v1/site/domains/route";
+import * as domainRoute from "@/app/api/v1/site/domains/[id]/route";
+import * as domainCheckRoute from "@/app/api/v1/site/domains/[id]/check/route";
 import * as republishRoute from "@/app/api/v1/site/republish/route";
 
 /**
@@ -46,7 +49,7 @@ export type Tool = {
 
 type Plan = {
   handler: Handler;
-  method: "GET" | "POST" | "PUT";
+  method: "GET" | "POST" | "PUT" | "DELETE";
   path: string;
   params?: Record<string, string>;
   query?: Record<string, string | number | undefined>;
@@ -349,6 +352,46 @@ export const TOOLS: readonly Tool[] = [
     requires: ["pages:publish"],
     plan: (a) => ({ handler: siteThemeRoute.PUT, method: "PUT", path: "/api/v1/site/theme", body: obj(a, "change"), idempotencyKey: key(a) }),
     summarize: () => "Theme updated. Run republish_site to apply it to published pages.",
+  },
+  {
+    name: "list_site_domains",
+    title: "List the site's custom domains",
+    description: "The site's custom domains and where each one stands: pending, verifying, active or error.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    requires: READ,
+    plan: () => ({ handler: domainsRoute.GET, method: "GET", path: "/api/v1/site/domains" }),
+    summarize: (d) => `${count(d, "domains")} custom domains.`,
+  },
+  {
+    name: "add_site_domain",
+    title: "Add a custom domain",
+    description: "Adds a custom domain (a subdomain such as www.example.com) to the site. The result lists the DNS records the owner must create at their DNS host; then run check_site_domain until it is active. Needs a paid plan.",
+    inputSchema: { type: "object", properties: { hostname: { type: "string", description: "A subdomain such as www.example.com." }, idempotencyKey }, required: ["hostname", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    requires: ["pages:publish"],
+    plan: (a) => ({ handler: domainsRoute.POST, method: "POST", path: "/api/v1/site/domains", body: { hostname: str(a, "hostname", { max: 300 }) }, idempotencyKey: key(a) }),
+    summarize: (d) => `Domain added (${(d.domain as { status?: string } | undefined)?.status ?? "pending"}). Create the DNS records listed, then run check_site_domain.`,
+  },
+  {
+    name: "check_site_domain",
+    title: "Check a custom domain",
+    description: "Asks where a custom domain stands and starts serving it once it is verified. Safe to repeat while waiting on DNS.",
+    inputSchema: { type: "object", properties: { id: { type: "string", description: "The domain's id, from list_site_domains." } }, required: ["id"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    requires: ["pages:publish"],
+    plan: (a) => ({ handler: domainCheckRoute.POST, method: "POST", path: `/api/v1/site/domains/${encodeURIComponent(str(a, "id", { max: 64 })!)}/check`, params: { id: str(a, "id", { max: 64 })! } }),
+    summarize: (d) => `Domain is ${(d.domain as { status?: string } | undefined)?.status ?? "unknown"}.`,
+  },
+  {
+    name: "remove_site_domain",
+    title: "Remove a custom domain",
+    description: "Stops serving a custom domain and releases it. Visitors to it get an error, so confirm with the person first. The owner's DNS records are not touched.",
+    inputSchema: { type: "object", properties: { id: { type: "string", description: "The domain's id, from list_site_domains." }, idempotencyKey }, required: ["id", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    requires: ["pages:publish"],
+    plan: (a) => ({ handler: domainRoute.DELETE, method: "DELETE", path: `/api/v1/site/domains/${encodeURIComponent(str(a, "id", { max: 64 })!)}`, params: { id: str(a, "id", { max: 64 })! }, idempotencyKey: key(a) }),
+    summarize: () => "Domain removed.",
   },
   {
     name: "republish_site",
