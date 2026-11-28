@@ -43,3 +43,7 @@ Out of scope: vulnerabilities in Google, Cloudflare or GitHub themselves (report
 ## If something goes wrong
 
 The maintainer response steps are in [runbooks/incident-response.md](runbooks/incident-response.md). Credential rotation is in [runbooks/secret-rotation.md](runbooks/secret-rotation.md).
+
+## Abuse on a published site or custom domain
+
+To report phishing or other abuse on a site we host, use the same private channel as above. Taking a custom domain offline is described in [runbooks/custom-domains.md](runbooks/custom-domains.md#takedown-abuse-reports).

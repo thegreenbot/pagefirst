@@ -773,4 +773,17 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE site_domains ADD COLUMN grace_until timestamptz;
     `,
   },
+  {
+    id: 35,
+    name: "blocked domains",
+    sql: `
+      -- Hostnames an operator has disabled for abuse (#190). A blocked name, and any
+      -- name under it, can't be added or served.
+      CREATE TABLE blocked_domains (
+        hostname   text PRIMARY KEY CHECK (hostname = lower(hostname)),
+        reason     text NOT NULL DEFAULT '',
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+    `,
+  },
 ];

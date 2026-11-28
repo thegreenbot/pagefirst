@@ -1,4 +1,5 @@
 import { query } from "@/lib/db/client";
+import { removeAllSiteDomains } from "@/lib/domains/service";
 import { r2Configured, removeSiteFile } from "@/lib/publish/r2";
 import { deleteOrganization } from "./orgs";
 
@@ -13,6 +14,8 @@ export async function closeOrganization(orgId: string): Promise<{ sites: number;
   let files = 0;
   if (r2Configured()) {
     for (const site of sites) {
+      // Domains first: serving stops and the provider hostnames go before the site's files.
+      await removeAllSiteDomains(site.id);
       const recorded = await query<{ key: string }>("SELECT key FROM site_files WHERE site_id = $1", [site.id]);
       for (const file of recorded) {
         await removeSiteFile(site.id, file.key);

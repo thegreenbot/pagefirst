@@ -36,6 +36,8 @@ export interface DomainProvider {
   status(ref: string, hostname: string, token: string): Promise<ProviderStatus>;
   /** Stops routing the hostname. A hostname that is already gone is not an error. */
   remove(ref: string): Promise<void>;
+  /** Every hostname the provider routes, for the sweeper (#190). Providers that can't list omit it. */
+  list?(): Promise<{ ref: string; hostname: string }[]>;
 }
 
 /** The provider error the owner can see: never carries a token or a response body. */

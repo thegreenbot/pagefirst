@@ -34,6 +34,9 @@ export function createFakeProvider(): DomainProvider & {
       if (!status) return { state: "error", message: "This domain is no longer set up.", records: [] };
       return status;
     },
+    async list() {
+      return [...states.keys()].map((ref) => ({ ref, hostname: ref.slice(ref.indexOf(":") + 1) }));
+    },
     async remove(ref) {
       removed.push(ref);
       states.delete(ref);
