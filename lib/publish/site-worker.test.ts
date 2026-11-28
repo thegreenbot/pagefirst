@@ -32,6 +32,13 @@ const files = {
   "sites/bob/about.html": { body: "bob about", type: "text/html; charset=utf-8" },
 };
 
+// Alice has an active custom domain: her pagefirst address redirects to it.
+const withDomain = {
+  ...files,
+  "hosts/www.alice.test-domain.com": { body: "alice" },
+  "canonical/alice": { body: "www.alice.test-domain.com" },
+};
+
 const get = (env: { SITES: R2BucketLike }, url: string, init?: RequestInit) => handleSiteRequest(new Request(url, init), env);
 
 describe("site worker", () => {
@@ -58,7 +65,7 @@ describe("site worker", () => {
       const res = await get(env, `https://alice.sites.example${path}`);
       assert.equal(res.status, 404, path);
     }
-    assert.ok(env.SITES.reads.every((key) => key.startsWith("hosts/") || key.startsWith("sites/alice/")), env.SITES.reads.join());
+    assert.ok(env.SITES.reads.every((key) => key.startsWith("hosts/") || key === "canonical/alice" || key.startsWith("sites/alice/")), env.SITES.reads.join());
     assert.equal((await get(env, "https://evil.sites.example/about")).status, 404, "a malformed host record is ignored");
   });
 
@@ -92,5 +99,31 @@ describe("site worker", () => {
     assert.deepEqual(candidateKeys("/img/logo.png"), ["img/logo.png"]);
     assert.equal(candidateKeys("/a/../b"), null);
     assert.equal(candidateKeys("/%E0%A4%A"), null);
+  });
+
+  test("a site's pagefirst address redirects to its custom domain, keeping path and query", async () => {
+    const env = { SITES: bucket(withDomain) };
+    const response = await get(env, "https://alice.sites.example/blog/post?ref=x");
+    assert.equal(response.status, 301);
+    assert.equal(response.headers.get("location"), "https://www.alice.test-domain.com/blog/post?ref=x");
+  });
+
+  test("the custom host itself serves the site, in any letter case", async () => {
+    const env = { SITES: bucket(withDomain) };
+    const response = await get(env, "https://WWW.Alice.Test-Domain.com/about");
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), "alice about");
+    assert.match(response.headers.get("strict-transport-security") ?? "", /max-age/);
+  });
+
+  test("an unknown or removed custom host is a 404, and a site without a custom domain does not redirect", async () => {
+    const env = { SITES: bucket(withDomain) };
+    assert.equal((await get(env, "https://www.gone.test-domain.com/")).status, 404);
+    assert.equal((await get(env, "https://bob.sites.example/about")).status, 200);
+  });
+
+  test("a malformed canonical record is ignored rather than followed", async () => {
+    const env = { SITES: bucket({ ...files, "canonical/alice": { body: "evil.com/path" } }) };
+    assert.equal((await get(env, "https://alice.sites.example/")).status, 200);
   });
 });

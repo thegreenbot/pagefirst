@@ -4,6 +4,7 @@
  * alone. Layout in the bucket:
  *
  *   hosts/<hostname>          → the siteId that hostname serves (text)
+ *   canonical/<siteId>        → the custom hostname that site prefers (text); other hosts redirect to it
  *   sites/<siteId>/<file>     → that site's files, with `csp` in customMetadata
  *
  * A request maps hostname → siteId → file. Nothing a visitor sends can name
@@ -102,6 +103,14 @@ export async function siteIdFor(env: SiteWorkerEnv, hostname: string): Promise<s
   return SITE_ID.test(siteId) ? siteId : null;
 }
 
+/** The custom hostname a site prefers, or null when it has none (or the record is malformed). */
+export async function canonicalHostFor(env: SiteWorkerEnv, siteId: string): Promise<string | null> {
+  const record = await env.SITES.get(`canonical/${siteId}`);
+  if (!record) return null;
+  const host = (await record.text()).trim().toLowerCase();
+  return HOSTNAME.test(host) && host.includes(".") ? host : null;
+}
+
 /** Speculation Rules (#63): prefetch same-site pages a visitor is about to open. */
 export const SPECULATION_RULES_PATH = "/_pf/speculation-rules.json";
 export const SPECULATION_RULES = JSON.stringify({
@@ -117,6 +126,14 @@ export async function handleSiteRequest(request: Request, env: SiteWorkerEnv): P
   const url = new URL(request.url);
   const siteId = await siteIdFor(env, url.hostname);
   if (!siteId) return plain(404, "No site is published at this address.");
+  // A site with an active custom domain lives there; its other addresses send visitors on, keeping path and query.
+  const canonical = await canonicalHostFor(env, siteId);
+  if (canonical && canonical !== url.hostname.toLowerCase().replace(/\.$/, "")) {
+    const response = plain(301, "");
+    response.headers.set("Location", `https://${canonical}${url.pathname}${url.search}`);
+    response.headers.set("Cache-Control", "public, max-age=300");
+    return response;
+  }
   if (url.pathname === SPECULATION_RULES_PATH) {
     // No site file can live here: path segments must start with a letter or digit.
     return new Response(request.method === "HEAD" ? null : SPECULATION_RULES, {

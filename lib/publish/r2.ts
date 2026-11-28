@@ -110,3 +110,15 @@ export async function putHost(hostname: string, siteId: string): Promise<void> {
 export async function deleteHost(hostname: string): Promise<void> {
   await send("DELETE", hostObjectKey(hostname));
 }
+
+/** Records which custom hostname a site prefers; its other addresses redirect there. */
+export async function putCanonicalHost(siteId: string, hostname: string): Promise<void> {
+  if (!SITE_ID.test(siteId)) throw new Error("Invalid site id");
+  hostObjectKey(hostname);
+  await send("PUT", `canonical/${siteId}`, { body: hostname.toLowerCase(), contentType: "text/plain; charset=utf-8" });
+}
+
+export async function deleteCanonicalHost(siteId: string): Promise<void> {
+  if (!SITE_ID.test(siteId)) throw new Error("Invalid site id");
+  await send("DELETE", `canonical/${siteId}`);
+}
