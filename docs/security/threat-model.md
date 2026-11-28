@@ -40,7 +40,7 @@ Last reviewed: 2026-11-27. Review it whenever a route, an OAuth scope, a stored 
 
 | Threat | Current control | Gap | Issue |
 | --- | --- | --- | --- |
-| Cross-site POST writes to a Doc (CSRF) | `middleware.ts` refuses any non-GET `/api/*` request that is not same-origin (403) and any non-JSON body to commit or publish (415) | None for cookie routes. API-key routes must skip the origin check but keep rate limits | #13 (done), #36 |
+| Cross-site POST writes to a Doc (CSRF) | `proxy.ts` refuses any non-GET `/api/*` request that is not same-origin (403) and any non-JSON body to commit or publish (415) | None for cookie routes. API-key routes must skip the origin check but keep rate limits | #13 (done), #36 |
 | Malformed or oversized commit ops reach Google | Runtime schema for every op, 200-op and 512 KB caps, field-path 400s | Same schema must be reused by API and MCP | #14, #9 |
 | Flooding commit, publish or upload | Shared sliding-window limits (Upstash, else Postgres, else memory) per action, client type and caller (Google account, else IP), with `Retry-After` and `RateLimit-*` headers. Memory buckets only drop expired keys | If the shared store is down, limits fall back to per-instance memory. API and MCP budgets are separate but those clients are not built yet | #18 (done), #36 |
 | Stored XSS from Doc text into the editor or published HTML | `lib/page/render.ts` escapes text, attributes and ids; media served with `nosniff` and a sandbox CSP for SVG | No CSP or security headers on the app; no hostile-content render tests | #19 |

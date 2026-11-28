@@ -10,7 +10,7 @@ import { appContentSecurityPolicy, createNonce } from "@/lib/http/headers";
  * Pages: a fresh CSP nonce per request. Next.js reads the policy from the
  * request headers and puts the nonce on its own scripts.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname.startsWith("/api/")) {
