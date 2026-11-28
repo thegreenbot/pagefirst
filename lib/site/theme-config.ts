@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { databaseConfigured, query, transaction } from "@/lib/db/client";
+import { speedReportEnabled } from "./speed";
+import { checkThemeUpdate, readSitePolicy, withLockedTokens } from "./theme-policy";
 import { ensurePersonalOrg, requireFeature, siteAllows } from "@/lib/tenant/orgs";
 import type { ThemeManifest } from "@/lib/theme/manifest";
 import type { ThemePackage } from "@/lib/theme/package";
@@ -293,6 +295,7 @@ export async function readSiteTheme(siteId: string): Promise<SiteThemeConfig> {
 export async function updateSiteTheme(siteId: string, input: unknown): Promise<SiteThemeConfig> {
   const current = await readSiteTheme(siteId);
   const next = await resolveUpdate(current, input);
+  checkThemeUpdate(await readSitePolicy(siteId), current, next);
   // Changing either needs a paid plan on the hosted service; clearing never does.
   if (next.customCss !== current.customCss && next.customCss !== "") await requireFeature(siteId, "customCss");
   if (JSON.stringify(next.templateOverrides) !== JSON.stringify(current.templateOverrides) && Object.keys(next.templateOverrides).length) {
@@ -379,7 +382,21 @@ export type RenderContext = {
   theme: ThemePackage;
   config: SiteThemeConfig | null;
   presentation: PagePresentation | null;
+  /** The site's opt-in speed beacon (#70); absent unless the owner turned it on and the app has a public origin. */
+  beacon?: { endpoint: string; site: string };
 };
+
+/** The collector's URL, from APP_URL; null when the app doesn't know its public origin. */
+export function vitalsEndpoint(): string | null {
+  const value = process.env.APP_URL?.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? `${url.origin}/api/vitals` : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Reads the signed-in owner's site config for a page. Without a database or a
@@ -395,9 +412,12 @@ export async function renderContextFor(sub: string | null, fileId: string, selec
   // Stored custom CSS stops rendering when the plan no longer includes it (downgrade); it is kept, not deleted.
   const noCss = stored.customCss && !(await siteAllows(siteId, "customCss"));
   const noOverrides = Object.keys(stored.templateOverrides).length > 0 && !(await siteAllows(siteId, "templateOverrides"));
-  const config = noCss || noOverrides ? { ...stored, customCss: noCss ? "" : stored.customCss, templateOverrides: noOverrides ? {} : stored.templateOverrides } : stored;
-  const [theme, presentation] = await Promise.all([lockedPackage(config.lock.integrity), readPresentation(siteId, fileId)]);
-  return { theme, config, presentation };
+  const unlocked = noCss || noOverrides ? { ...stored, customCss: noCss ? "" : stored.customCss, templateOverrides: noOverrides ? {} : stored.templateOverrides } : stored;
+  // The organization's brand lock wins over the site's own tokens (#69).
+  const config = withLockedTokens(unlocked, await readSitePolicy(siteId));
+  const [theme, presentation, speed] = await Promise.all([lockedPackage(config.lock.integrity), readPresentation(siteId, fileId), speedReportEnabled(siteId)]);
+  const endpoint = speed ? vitalsEndpoint() : null;
+  return { theme, config, presentation, ...(endpoint ? { beacon: { endpoint, site: siteId } } : {}) };
 }
 
 /**

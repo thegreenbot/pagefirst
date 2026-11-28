@@ -15,11 +15,18 @@ export const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  */
 const TOKEN_ROUTES = [/^\/api\/registry\/versions$/, /^\/api\/v1\//, /^\/api\/mcp$/, /^\/api\/oauth\/register$/, /^\/api\/billing\/webhook$/, /^\/api\/scim\/v2\//];
 
+/**
+ * The speed beacon's collector (#70) is posted by visitors of published sites,
+ * from another origin and with no cookie. It reads no session and only counts
+ * numbers, so it skips the origin check; it takes `text/plain` on purpose.
+ */
+const BEACON_ROUTES = [/^\/api\/vitals$/];
+
 /** Public OAuth endpoints that read no cookie and take form-encoded bodies. */
 const FORM_ROUTES = [/^\/api\/oauth\/(token|revoke)$/];
 
 /** Routes whose body, when there is one, must be JSON. */
-const JSON_ROUTES = [/^\/api\/billing\/(checkout|portal)$/, /^\/api\/orgs\/[^/]+\/(scim-tokens|domain)$/, /^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/, /^\/api\/keys$/, ...TOKEN_ROUTES];
+const JSON_ROUTES = [/^\/api\/billing\/(checkout|portal)$/, /^\/api\/orgs\/[^/]+\/(scim-tokens|domain|theme-policy)$/, /^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/, /^\/api\/keys$/, ...TOKEN_ROUTES];
 
 function configuredOrigin(): string | null {
   const value = process.env.APP_URL?.trim();
@@ -80,7 +87,7 @@ export type MutationCheck = { ok: true } | { ok: false; status: 403 | 415; error
  */
 export function checkMutation(request: Request, pathname: string): MutationCheck {
   if (SAFE_METHODS.has(request.method.toUpperCase())) return { ok: true };
-  const tokenRoute = TOKEN_ROUTES.some((pattern) => pattern.test(pathname)) || FORM_ROUTES.some((pattern) => pattern.test(pathname));
+  const tokenRoute = TOKEN_ROUTES.some((pattern) => pattern.test(pathname)) || FORM_ROUTES.some((pattern) => pattern.test(pathname)) || BEACON_ROUTES.some((pattern) => pattern.test(pathname));
   if (!tokenRoute && !sameOrigin(request)) {
     return { ok: false, status: 403, error: "Cross-site request refused." };
   }
