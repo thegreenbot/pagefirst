@@ -121,7 +121,8 @@ export async function setDomainStatus(
        last_error = CASE WHEN $2 = 'error' THEN $3 ELSE NULL END,
        provider_ref = COALESCE($4, provider_ref),
        verified_at = CASE WHEN $2 = 'active' AND verified_at IS NULL THEN now() ELSE verified_at END,
-       removed_at = CASE WHEN $2 = 'removed' THEN now() ELSE removed_at END
+       removed_at = CASE WHEN $2 = 'removed' THEN now() ELSE removed_at END,
+       grace_until = CASE WHEN $2 = 'active' THEN grace_until ELSE NULL END
      WHERE id = $1 AND status <> 'removed'
      RETURNING ${COLUMNS}`,
     [id, status, fields.error ?? null, fields.providerRef ?? null],
@@ -154,4 +155,20 @@ export async function listDomainsByStatus(statuses: DomainStatus[], limit: numbe
     [statuses, limit],
   );
   return rows.map(toDomain);
+}
+
+/** When an active domain's grace period after a downgrade ends, or null when it has none. */
+export async function getGraceUntil(id: string): Promise<Date | null> {
+  const rows = await query<{ grace_until: Date | null }>("SELECT grace_until FROM site_domains WHERE id = $1", [id]);
+  return rows[0]?.grace_until ?? null;
+}
+
+export async function setGraceUntil(id: string, until: Date | null): Promise<void> {
+  await query("UPDATE site_domains SET grace_until = $2 WHERE id = $1", [id, until]);
+}
+
+/** Active custom hostnames, so the cost of serving them is visible. */
+export async function countActiveDomains(): Promise<number> {
+  const rows = await query<{ n: string }>("SELECT count(*)::text AS n FROM site_domains WHERE status = 'active'");
+  return Number(rows[0]?.n ?? 0);
 }

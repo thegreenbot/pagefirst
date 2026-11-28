@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db/client";
+import { PlanError } from "@/lib/tenant/plans";
 import { requireSite } from "@/lib/site/request";
 import type { Role } from "@/lib/tenant/orgs";
 import { DomainServiceError, type Actor } from "./service";
@@ -30,6 +31,7 @@ const STATUS: Record<DomainServiceError["code"], number> = {
 };
 
 export function domainErrorResponse(error: unknown): NextResponse {
+  if (error instanceof PlanError) return NextResponse.json({ error: error.message, feature: error.feature, upgrade: true }, { status: 402 });
   if (error instanceof DomainServiceError) return NextResponse.json({ error: error.message, code: error.code }, { status: STATUS[error.code] });
   throw error;
 }

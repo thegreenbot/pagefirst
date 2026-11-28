@@ -764,4 +764,13 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX site_domains_site_idx ON site_domains (site_id, created_at);
     `,
   },
+  {
+    id: 34,
+    name: "custom domain downgrade grace",
+    sql: `
+      -- When a site's plan stops including custom domains, an active domain keeps
+      -- serving until this time, then is deactivated (#189). Cleared if the plan returns.
+      ALTER TABLE site_domains ADD COLUMN grace_until timestamptz;
+    `,
+  },
 ];

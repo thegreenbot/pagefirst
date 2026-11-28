@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { configuredDomainProvider } from "@/lib/domains";
-import { reverifyDomains } from "@/lib/domains/service";
+import { activeDomainCount, reverifyDomains } from "@/lib/domains/service";
 import { advanceJob } from "@/lib/jobs/run";
 import { unfinishedJobIds } from "@/lib/jobs/store";
 import { deliverDue } from "@/lib/jobs/webhook";
@@ -25,5 +25,6 @@ export async function GET(request: Request) {
   const webhooks = await deliverDue(20);
   // Custom domains: finish validating new ones, and stop serving any that no longer validate (#188).
   const domains = configuredDomainProvider() ? await reverifyDomains().catch(() => null) : null;
-  return NextResponse.json({ advanced: ids.length, webhooks, domains });
+  const activeDomains = await activeDomainCount().catch(() => null);
+  return NextResponse.json({ advanced: ids.length, webhooks, domains, activeDomains });
 }

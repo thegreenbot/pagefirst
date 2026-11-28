@@ -5,6 +5,7 @@ import { resetTestDatabase, testDatabaseUrl } from "@/lib/db/test-db";
 import { siteForOwner } from "@/lib/site/theme-config";
 import { createFakeProvider } from "./fake-provider";
 import { addSiteDomain, checkSiteDomain, DEFAULT_LIMITS, DomainServiceError, type Actor, type DomainDeps, listSiteDomains, removeSiteDomain, reverifyDomains } from "./service";
+import { PlanError } from "@/lib/tenant/plans";
 import { findHeldDomain } from "./store";
 
 const url = testDatabaseUrl();
@@ -180,4 +181,52 @@ describe("custom domain service", { skip: url ? false : "set TEST_DATABASE_URL t
     await removeSiteDomain(bob, view.domain.id, deps);
     assert.equal(await findHeldDomain("blog.bob-site.com"), null);
   });
+
+  {
+    const setPlan = (siteId: string, plan: string) => query("UPDATE organizations SET plan = $2 WHERE id = (SELECT org_id FROM sites WHERE id = $1)", [siteId, plan]);
+    const hosted = async (run: () => Promise<void>) => {
+      process.env.PAGEFIRST_EDITION = "hosted";
+      try {
+        await run();
+      } finally {
+        delete process.env.PAGEFIRST_EDITION;
+      }
+    };
+
+    test("a free site can't add a domain; a paid site can, up to its limit", () => hosted(async () => {
+      const { deps } = setup();
+      const carol = { ownerSub: "carol-sub", siteId: await siteForOwner("carol-sub") };
+      await setPlan(carol.siteId, "free");
+      await assert.rejects(addSiteDomain(carol, "www.carol-site.com", deps), (e) => e instanceof PlanError && e.feature === "customDomains");
+      await setPlan(carol.siteId, "pro");
+      await addSiteDomain(carol, "www.carol-site.com", deps);
+      await addSiteDomain(carol, "blog.carol-site.com", deps);
+      await assert.rejects(addSiteDomain(carol, "shop.carol-site.com", deps), (e) => e instanceof DomainServiceError && e.code === "limit");
+    }));
+
+    test("after a downgrade an active domain serves through the grace period, then stops", () => hosted(async () => {
+      const { provider, hosts, deps } = setup();
+      const dave = { ownerSub: "dave-sub", siteId: await siteForOwner("dave-sub") };
+      await setPlan(dave.siteId, "pro");
+      const view = await addSiteDomain(dave, "www.dave-site.com", deps);
+      provider.set(refOf(provider, "www.dave-site.com"), ACTIVE);
+      await checkSiteDomain(dave, view.domain.id, deps);
+      assert.equal(hosts.has("www.dave-site.com"), true);
+
+      await setPlan(dave.siteId, "free");
+      await reverifyDomains(deps);
+      assert.equal(hosts.has("www.dave-site.com"), true, "keeps serving during the grace period");
+      const [row] = await query<{ grace_until: Date | null }>("SELECT grace_until FROM site_domains WHERE id = $1", [view.domain.id]);
+      assert.ok(row?.grace_until && row.grace_until.getTime() > Date.now() + 13 * 86_400_000);
+
+      await query("UPDATE site_domains SET grace_until = now() - interval '1 minute' WHERE id = $1", [view.domain.id]);
+      await reverifyDomains(deps);
+      assert.equal(hosts.has("www.dave-site.com"), false, "stops once the grace period has passed");
+      assert.equal((await findHeldDomain("www.dave-site.com"))?.status, "error");
+
+      await setPlan(dave.siteId, "pro");
+      await checkSiteDomain(dave, view.domain.id, deps);
+      assert.equal(hosts.has("www.dave-site.com"), true, "upgrading again serves it again");
+    }));
+  }
 });
