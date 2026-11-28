@@ -105,3 +105,8 @@ export async function putHost(hostname: string, siteId: string): Promise<void> {
   if (!SITE_ID.test(siteId)) throw new Error("Invalid site id");
   await send("PUT", hostObjectKey(hostname), { body: siteId, contentType: "text/plain; charset=utf-8" });
 }
+
+/** Stops serving a hostname. A hostname that is already gone is fine. */
+export async function deleteHost(hostname: string): Promise<void> {
+  await send("DELETE", hostObjectKey(hostname));
+}
