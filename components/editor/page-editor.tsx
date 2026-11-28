@@ -209,6 +209,7 @@ export function PageEditor({
   const committingRef = useRef(false);
   const publishingRef = useRef(false);
   const [published, setPublished] = useState<Published | null>(null);
+  const [usage, setUsage] = useState<PublishUsage | null>(null);
   const [publicCopy, setPublicCopy] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusToken, setFocusToken] = useState(0);
@@ -414,6 +415,20 @@ export function PageEditor({
     }
   }
 
+  async function loadUsage() {
+    try {
+      const response = await fetch("/api/site/usage");
+      const data = await readJson(response);
+      if (response.ok && isRecord(data) && isRecord(data.limits)) setUsage(data as unknown as PublishUsage);
+    } catch {
+      // The meter is a convenience; publishing works without it.
+    }
+  }
+
+  useEffect(() => {
+    void loadUsage();
+  }, []);
+
   async function onPublish() {
     const current = modelRef.current;
     if (current.pending.length > 0 || publishingRef.current) return;
@@ -445,6 +460,7 @@ export function PageEditor({
     } finally {
       publishingRef.current = false;
       setPublishing(false);
+      void loadUsage();
     }
   }
 
@@ -491,6 +507,7 @@ export function PageEditor({
                 />
                 Public copy. Anyone with the Cloudflare link can read it.
               </label>
+              {usage ? <UsageMeter usage={usage} /> : null}
               {dirty ? (
                 <p className="mt-1 max-w-[16rem] text-xs leading-snug text-ink-soft">
                   Commit this draft, then publish.
@@ -1247,5 +1264,33 @@ function BrandPanel({
         })}
       </div>
     </details>
+  );
+}
+
+type PublishUsage = {
+  plan: string;
+  livePages: number;
+  publishesToday: number;
+  limits: { livePages: number | null; publishesPerDay: number | null };
+};
+
+/** Usage against the plan's publish limits (#195). Shown only when a limit applies; links to upgrade once either is nearly or fully used. */
+function UsageMeter({ usage }: { usage: PublishUsage }) {
+  const { livePages, publishesPerDay } = usage.limits;
+  if (livePages === null && publishesPerDay === null) return null;
+  const near = (used: number, max: number | null) => max !== null && used >= Math.ceil(max * 0.8);
+  const full = (used: number, max: number | null) => max !== null && used >= max;
+  const nearLimit = near(usage.livePages, livePages) || near(usage.publishesToday, publishesPerDay);
+  const atLimit = full(usage.livePages, livePages) || full(usage.publishesToday, publishesPerDay);
+  return (
+    <p className="mt-1 max-w-[16rem] text-xs leading-snug text-ink-soft" data-testid="publish-usage">
+      {livePages !== null ? `${usage.livePages} of ${livePages} live pages. ` : null}
+      {publishesPerDay !== null ? `${usage.publishesToday} of ${publishesPerDay} publishes in the last 24 hours. ` : null}
+      {nearLimit ? (
+        <Link href="/orgs" className="text-green underline underline-offset-2">
+          {atLimit ? "Upgrade to publish more" : "Upgrade for higher limits"}
+        </Link>
+      ) : null}
+    </p>
   );
 }
