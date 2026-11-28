@@ -8,6 +8,8 @@ import { readPreviewAsset, savePreview, savePreviewAssets } from "@/lib/publish/
 import { publishToSite, siteHostname, sitePublishingEnabled } from "@/lib/publish/sites";
 import { isCurrentRender, recordRenderKey, renderKey } from "@/lib/site/render-key";
 import { renderContextFor, siteForOwner } from "@/lib/site/theme-config";
+import { budgetWarnings, readSitePolicy } from "@/lib/site/theme-policy";
+import { databaseConfigured } from "@/lib/db/client";
 import { recordSitePage } from "@/lib/site/theme-preview";
 import { requireScope, ServiceError, type ServiceContext } from "./context";
 import { getPage, googleFor } from "./pages";
@@ -73,7 +75,13 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
   }
   // Image renditions (#61): planned once, encoded only for destinations that lack them.
   const imagePlan = await planImages(payload.page);
-  const { html, csp, assets, preloads } = renderPageHtml(payload.page, "publish", renderContext, imagePlan.images);
+  const { html, csp, assets, preloads, warnings } = renderPageHtml(payload.page, "publish", renderContext, imagePlan.images);
+  // An organization can refuse to publish a page that renders over a performance budget (#69).
+  if (wantsPublic && !payload.sample && databaseConfigured() && (ctx.siteId ?? ctx.actor.sub)) {
+    const policy = await readSitePolicy(ctx.siteId ?? (await siteForOwner(ctx.actor.sub!)));
+    const over = policy.blockOnBudget ? budgetWarnings(warnings) : [];
+    if (over.length > 0) throw new ServiceError("invalid", `Your organization blocks publishing over a performance budget: ${over.join("; ")}`);
+  }
   const previewImages = await encodeMissing(imagePlan.planned, (image) => image.paths.every((path) => readPreviewAsset(path) !== null));
   // Preview assets stay in this instance's memory; public publishing uploads them with the page.
   savePreviewAssets([...assets, ...previewImages.assets]);
