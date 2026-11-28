@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { query } from "@/lib/db/client";
+import { describeFindings, checkTheme } from "./checks";
 import { budgetsFor, checkBudgets, measure, type Breach } from "./budgets";
 import { nodeOptimizer, publishedCsp } from "./csp";
 import { renderPage } from "./engine";
@@ -19,8 +20,13 @@ import { archiveIntegrity, unpackTheme } from "./tarball";
 /** Who published a version and how, kept with it: the CI identity and its Sigstore bundle. */
 export type Provenance = Record<string, unknown>;
 
+export const TRUST_TIERS = ["first-party", "verified", "community", "private"] as const;
+export type TrustTier = (typeof TRUST_TIERS)[number];
+
 export type ThemeVersion = {
   name: string;
+  /** Who vouches for it (#68). Installing a community version needs an explicit confirmation. */
+  tier: TrustTier;
   version: string;
   integrity: string;
   description: string;
@@ -61,6 +67,8 @@ export async function publishVersion(
   authorize?: (manifest: ThemeManifest) => void,
   /** The organization that owns a private version (#69); null publishes to the public registry. */
   ownerOrg: string | null = null,
+  /** A private version is always `private`; a public one defaults to first-party, the only publishers v1 admits. */
+  tier: TrustTier = ownerOrg ? "private" : "first-party",
 ): Promise<ThemeVersion> {
   let theme: ThemePackage;
   try {
@@ -71,6 +79,9 @@ export async function publishVersion(
   const { name, version } = theme.manifest;
   authorize?.(theme.manifest);
   if (!VERSION.test(version)) throw new RegistryError(`${version} is not a valid version`);
+  // Static checks for code and loads the manifest doesn't declare, for every publisher (#68).
+  const findings = checkTheme(theme);
+  if (findings.length) throw new RegistryError(`${name}@${version} failed the submission checks: ${describeFindings(findings)}`);
   const { measured, breaches } = checkPackage(theme);
   if (breaches.length) {
     throw new RegistryError(`${name}@${version} is over budget: ${breaches.map((b) => `${b.label} ${b.actual} > ${b.limit} ${b.unit}`).join("; ")}`);
@@ -81,15 +92,16 @@ export async function publishVersion(
   const owners = await query<{ owner_org: string | null }>("SELECT DISTINCT owner_org FROM theme_versions WHERE name = $1", [name]);
   if (owners.some((row) => row.owner_org !== ownerOrg)) throw new RegistryError(`${name} belongs to another publisher`);
   const rows = await query<{ published_at: Date }>(
-    `INSERT INTO theme_versions (name, version, integrity, archive, manifest, budgets, scores, provenance, countersignature, owner_org)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `INSERT INTO theme_versions (name, version, integrity, archive, manifest, budgets, scores, provenance, countersignature, owner_org, trust_tier)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT DO NOTHING
      RETURNING published_at`,
-    [name, version, integrity, Buffer.from(archive), JSON.stringify(theme.manifest), JSON.stringify(measured), scores ? JSON.stringify(scores) : null, JSON.stringify(provenance), signature, ownerOrg],
+    [name, version, integrity, Buffer.from(archive), JSON.stringify(theme.manifest), JSON.stringify(measured), scores ? JSON.stringify(scores) : null, JSON.stringify(provenance), signature, ownerOrg, tier],
   );
   if (!rows[0]) throw new RegistryError(`${name}@${version} is already published; versions are immutable`);
   return {
     name,
+    tier,
     version,
     integrity,
     description: theme.manifest.description ?? "",
@@ -111,10 +123,12 @@ type VersionRow = {
   published_at: Date;
   yanked_at: Date | null;
   advisory: string | null;
+  trust_tier: TrustTier;
 };
 
 const fromRow = (row: VersionRow): ThemeVersion => ({
   name: row.name,
+  tier: row.trust_tier,
   version: row.version,
   integrity: row.integrity,
   description: row.manifest.description ?? "",
@@ -125,7 +139,7 @@ const fromRow = (row: VersionRow): ThemeVersion => ({
   scores: row.scores,
 });
 
-const COLUMNS = "name, version, integrity, manifest, budgets, scores, published_at, yanked_at, advisory";
+const COLUMNS = "name, version, integrity, manifest, budgets, scores, published_at, yanked_at, advisory, trust_tier";
 
 function compareVersions(a: string, b: string): number {
   const parts = (v: string) => v.split(/[.-]/).slice(0, 3).map(Number);
@@ -214,4 +228,22 @@ export function privateScope(orgId: string): string {
 export async function listOrgVersions(orgId: string): Promise<ThemeVersion[]> {
   const rows = await query<VersionRow>(`SELECT ${COLUMNS} FROM theme_versions WHERE owner_org = $1`, [orgId]);
   return rows.map(fromRow).sort((a, b) => a.name.localeCompare(b.name) || compareVersions(b.version, a.version));
+}
+
+/** The tier of the version a lock points at; null for bundled themes and snapshots, which are first-party. */
+export async function tierOfIntegrity(integrity: string): Promise<TrustTier | null> {
+  const rows = await query<{ trust_tier: TrustTier }>("SELECT trust_tier FROM theme_versions WHERE integrity = $1", [integrity]);
+  return rows[0]?.trust_tier ?? null;
+}
+
+/**
+ * Moves a version between tiers after review (#68). Verified needs a person's
+ * review, so nothing here decides that: the caller is the reviewer's tooling.
+ * A private version never leaves `private`, and a public one never becomes it.
+ */
+export async function setTier(name: string, version: string, tier: TrustTier): Promise<void> {
+  const rows = await query<{ owner_org: string | null }>("SELECT owner_org FROM theme_versions WHERE name = $1 AND version = $2", [name, version]);
+  if (!rows[0]) throw new RegistryError(`${name}@${version} is not published`);
+  if ((rows[0].owner_org !== null) !== (tier === "private")) throw new RegistryError("A private version stays private, and a public one can't become private.");
+  await query("UPDATE theme_versions SET trust_tier = $3 WHERE name = $1 AND version = $2", [name, version, tier]);
 }

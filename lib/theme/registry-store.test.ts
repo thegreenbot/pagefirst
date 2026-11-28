@@ -8,7 +8,7 @@ import { renderPageHtml } from "@/lib/page/render";
 import { availableThemes, readSiteTheme, renderContextFor, siteForOwner, updateSiteTheme } from "@/lib/site/theme-config";
 import { readThemeDir } from "./package";
 import { orgIdForSite } from "@/lib/tenant/orgs";
-import { clearVerifiedCache, latestVersion, listThemes, loadVerifiedVersion, privateScope, publishVersion, resolveVersion, yankVersion } from "./registry-store";
+import { clearVerifiedCache, setTier, tierOfIntegrity, latestVersion, listThemes, loadVerifiedVersion, privateScope, publishVersion, resolveVersion, yankVersion } from "./registry-store";
 import { archiveIntegrity, packTheme } from "./tarball";
 
 const url = testDatabaseUrl();
@@ -166,5 +166,37 @@ describe("theme registry (#64)", { skip: url ? false : "set TEST_DATABASE_URL to
   test("a name can't be claimed both publicly and privately", async () => {
     const orgA = (await orgIdForSite(await siteForOwner("private-a")))!;
     await assert.rejects(publishVersion(archiveOf("themes/default", (m) => (m.version = "9.9.9")), provenance, null, undefined, orgA), /belongs to another publisher/);
+  });
+
+  test("a community theme needs an explicit confirmation to install; a promoted one doesn't (#68)", async () => {
+    const siteId = await siteForOwner("community-owner");
+    const name = "@acme/community";
+    const archive = archiveOf("themes/default", (m) => {
+      m.name = name;
+      m.version = "1.0.0";
+    });
+    const published = await publishVersion(archive, { source: "test" }, null, undefined, null, "community");
+    assert.equal(published.tier, "community");
+    assert.equal((await availableThemes(siteId)).find((t) => t.name === name)?.tier, "community");
+    await assert.rejects(updateSiteTheme(siteId, { themeName: name }), /unreviewed community theme/);
+    await assert.rejects(updateSiteTheme(siteId, { themeName: name, acceptUnreviewed: false }), /unreviewed community theme/);
+    await updateSiteTheme(siteId, { themeName: name, acceptUnreviewed: true });
+    assert.equal((await readSiteTheme(siteId)).themeName, name);
+
+    const other = await siteForOwner("community-owner-2");
+    await setTier(name, "1.0.0", "verified");
+    assert.equal(await tierOfIntegrity(published.integrity), "verified");
+    await updateSiteTheme(other, { themeName: name });
+    await assert.rejects(setTier(name, "1.0.0", "private"), /can't become private/);
+  });
+
+  test("a version that breaks a submission check is refused (#68)", async () => {
+    const files = readThemeDir("themes/default");
+    const manifest = JSON.parse(new TextDecoder().decode(files.get("theme.json")));
+    manifest.name = "@acme/sneaky";
+    files.set("theme.json", new TextEncoder().encode(JSON.stringify(manifest)));
+    const base = files.get("blocks/hero/block.css");
+    files.set("blocks/hero/block.css", new TextEncoder().encode(`@import url("https://evil.example/x.css");${base ? new TextDecoder().decode(base) : ""}`));
+    await assert.rejects(publishVersion(packTheme(files), provenance, null, undefined, null, "community"), /failed the submission checks.*no-css-import/);
   });
 });

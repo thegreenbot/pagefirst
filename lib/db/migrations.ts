@@ -675,4 +675,36 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX theme_versions_owner_idx ON theme_versions (owner_org) WHERE owner_org IS NOT NULL;
     `,
   },
+  {
+    id: 30,
+    name: "organization theme rollouts",
+    sql: `
+      -- A theme change applied to an organization's sites a stage at a time (#69).
+      CREATE TABLE org_theme_rollouts (
+        id         text PRIMARY KEY,
+        org_id     text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        change     jsonb NOT NULL,
+        stages     jsonb NOT NULL,
+        next_stage integer NOT NULL DEFAULT 0,
+        status     text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'halted', 'complete', 'cancelled')),
+        results    jsonb NOT NULL DEFAULT '{}',
+        created_by text,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX org_theme_rollouts_org_idx ON org_theme_rollouts (org_id, created_at DESC);
+    `,
+  },
+  {
+    id: 31,
+    name: "theme trust tiers",
+    sql: `
+      -- Who vouches for a version (#68): first-party (this project), verified (identity checked,
+      -- reviewed by a person), community (automated checks only) or private (one organization's).
+      -- Not part of the immutable columns: a review can promote a version without rewriting it.
+      ALTER TABLE theme_versions ADD COLUMN trust_tier text NOT NULL DEFAULT 'first-party'
+        CHECK (trust_tier IN ('first-party', 'verified', 'community', 'private'));
+      UPDATE theme_versions SET trust_tier = 'private' WHERE owner_org IS NOT NULL;
+    `,
+  },
 ];

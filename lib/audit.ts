@@ -41,6 +41,7 @@ export type AuditEventName =
   | "org.domain_lock"
   | "org.deleted"
   | "org.theme_policy"
+  | "org.theme_rollout"
   | "org.member.invited"
   | "org.member.role_changed"
   | "org.member.removed"
