@@ -32,6 +32,7 @@ Sample mode works with no credentials. The home page lists sample pages until Go
 
 The server reads these variables:
 
+- `GOOGLE_SCOPE_MODE=narrow` — sign in with `drive.file` only (no `documents` scope), so the app sees just its own files and Docs opened with the Google Picker. `GOOGLE_PICKER_API_KEY` (a browser API key restricted to the Picker API and this site) and `GOOGLE_CLOUD_PROJECT_NUMBER` turn on the "Open a Google Doc" button. Turn narrow mode on only after the two-account check in [docs/spikes/drive-file-access.md](docs/spikes/drive-file-access.md); existing sessions need to sign in again.
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `CLOUDFLARE_ACCOUNT_ID`

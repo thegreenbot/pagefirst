@@ -1,13 +1,20 @@
 import { createHash, randomBytes } from "node:crypto";
 import { callbackUrl } from "@/lib/google/origin";
 
-const SCOPES = [
-  "openid",
-  "email",
-  "profile",
-  "https://www.googleapis.com/auth/documents",
-  "https://www.googleapis.com/auth/drive.file",
-] as const;
+const IDENTITY_SCOPES = ["openid", "email", "profile"];
+const DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
+const DOCS = "https://www.googleapis.com/auth/documents";
+
+/**
+ * The scopes asked at sign-in (#15). `GOOGLE_SCOPE_MODE=narrow` asks for
+ * `drive.file` only: the app then sees the site folder it created and the
+ * Docs a person opens with the Google Picker, never the rest of their Drive.
+ * Left unset, the broad `documents` scope stays until the narrow mode is
+ * proven against real accounts (docs/spikes/drive-file-access.md).
+ */
+export function googleScopes(mode = process.env.GOOGLE_SCOPE_MODE): string[] {
+  return mode === "narrow" ? [...IDENTITY_SCOPES, DRIVE_FILE] : [...IDENTITY_SCOPES, DOCS, DRIVE_FILE];
+}
 
 export function createPkce(): { verifier: string; state: string } {
   return {
@@ -36,7 +43,7 @@ export function buildAuthUrl({
   url.searchParams.set("client_id", process.env.GOOGLE_CLIENT_ID ?? "");
   url.searchParams.set("redirect_uri", callbackUrl(origin));
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", SCOPES.join(" "));
+  url.searchParams.set("scope", googleScopes().join(" "));
   url.searchParams.set("state", state);
   url.searchParams.set("code_challenge", codeChallenge(verifier));
   url.searchParams.set("code_challenge_method", "S256");

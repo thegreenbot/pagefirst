@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { NewPageForm } from "@/components/new-page-form";
+import { OpenDocPicker } from "@/components/open-doc-picker";
+import { pickerConfig } from "@/lib/google/config";
 import type { Library } from "@/lib/page/types";
 import { createPage, listPages } from "@/lib/store";
 import { auditAction } from "@/lib/audit-request";
@@ -133,6 +135,7 @@ export default async function Home({
           ) : null}
 
           <NewPageForm action={createPageAction} />
+          {pickerConfig() && !showSampleNote ? <OpenDocPicker /> : null}
         </section>
       </main>
     </>
