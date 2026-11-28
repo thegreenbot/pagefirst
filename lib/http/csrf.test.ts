@@ -179,3 +179,11 @@ describe("scim and enterprise admin routes", () => {
     assert.equal(checkMutation(post(path, { "content-type": "text/plain", "sec-fetch-site": "same-origin" }), path).ok, false);
   });
 });
+
+describe("speed beacon collector (#70)", () => {
+  test("takes a cross-site text/plain post, and only the collector does", () => {
+    const post = (path: string) => new Request(`https://app.example${path}`, { method: "POST", headers: { "content-type": "text/plain;charset=UTF-8", origin: "https://site.pagefirst.io", "sec-fetch-site": "cross-site" }, body: "{}" });
+    assert.deepEqual(checkMutation(post("/api/vitals"), "/api/vitals"), { ok: true });
+    assert.equal(checkMutation(post("/api/site/speed"), "/api/site/speed").ok, false);
+  });
+});

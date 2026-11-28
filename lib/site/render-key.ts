@@ -14,14 +14,15 @@ const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 const sorted = (record: Record<string, unknown>) => Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 
 /** Everything in the render context that changes the bytes: config, and the page's presentation. */
-export function siteConfigHash(context: Pick<RenderContext, "config" | "presentation">): string {
-  const { config, presentation } = context;
+export function siteConfigHash(context: Pick<RenderContext, "config" | "presentation" | "beacon">): string {
+  const { config, presentation, beacon } = context;
   return sha(
     JSON.stringify([
       config
         ? [config.themeName, config.versionRange, sorted(config.tokens), sorted(config.settings), config.customCss, sorted(config.templateOverrides), [...config.locks].sort()]
         : null,
       presentation ? [presentation.template, sorted(presentation.sectionStyles)] : null,
+      beacon ? [beacon.endpoint, beacon.site] : null,
     ]),
   );
 }

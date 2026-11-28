@@ -630,4 +630,22 @@ export const MIGRATIONS: Migration[] = [
         ADD COLUMN job_id text;
     `,
   },
+  {
+    id: 27,
+    name: "field speed report",
+    sql: `
+      -- Opt-in field speed beacon (#70): off by default, so a site ships no script until its owner turns it on.
+      ALTER TABLE sites ADD COLUMN speed_report boolean NOT NULL DEFAULT false;
+      -- One row per metric per visit: a site, a path, a number. No identifier, no IP, no user agent.
+      CREATE TABLE vitals_samples (
+        id bigserial PRIMARY KEY,
+        site_id text NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        path text NOT NULL,
+        metric text NOT NULL CHECK (metric IN ('lcp', 'cls', 'inp')),
+        value real NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX vitals_samples_site_idx ON vitals_samples (site_id, created_at DESC);
+    `,
+  },
 ];

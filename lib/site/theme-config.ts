@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { databaseConfigured, query, transaction } from "@/lib/db/client";
+import { speedReportEnabled } from "./speed";
 import { ensurePersonalOrg, requireFeature, siteAllows } from "@/lib/tenant/orgs";
 import type { ThemeManifest } from "@/lib/theme/manifest";
 import type { ThemePackage } from "@/lib/theme/package";
@@ -379,7 +380,21 @@ export type RenderContext = {
   theme: ThemePackage;
   config: SiteThemeConfig | null;
   presentation: PagePresentation | null;
+  /** The site's opt-in speed beacon (#70); absent unless the owner turned it on and the app has a public origin. */
+  beacon?: { endpoint: string; site: string };
 };
+
+/** The collector's URL, from APP_URL; null when the app doesn't know its public origin. */
+export function vitalsEndpoint(): string | null {
+  const value = process.env.APP_URL?.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? `${url.origin}/api/vitals` : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Reads the signed-in owner's site config for a page. Without a database or a
@@ -396,8 +411,9 @@ export async function renderContextFor(sub: string | null, fileId: string, selec
   const noCss = stored.customCss && !(await siteAllows(siteId, "customCss"));
   const noOverrides = Object.keys(stored.templateOverrides).length > 0 && !(await siteAllows(siteId, "templateOverrides"));
   const config = noCss || noOverrides ? { ...stored, customCss: noCss ? "" : stored.customCss, templateOverrides: noOverrides ? {} : stored.templateOverrides } : stored;
-  const [theme, presentation] = await Promise.all([lockedPackage(config.lock.integrity), readPresentation(siteId, fileId)]);
-  return { theme, config, presentation };
+  const [theme, presentation, speed] = await Promise.all([lockedPackage(config.lock.integrity), readPresentation(siteId, fileId), speedReportEnabled(siteId)]);
+  const endpoint = speed ? vitalsEndpoint() : null;
+  return { theme, config, presentation, ...(endpoint ? { beacon: { endpoint, site: siteId } } : {}) };
 }
 
 /**
