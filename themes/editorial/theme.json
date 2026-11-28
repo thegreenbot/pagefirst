@@ -1,0 +1,18 @@
+{
+  "$schema": "../../lib/theme/theme.schema.json",
+  "name": "@pagefirst/editorial",
+  "version": "1.0.0",
+  "engine": 1,
+  "description": "A first-party magazine-style theme: system sans-serif type, a wide hero and card grids.",
+  "templates": {
+    "page": { "label": "Page" }
+  },
+  "blocks": {
+    "hero": { "label": "Hero", "description": "A large lead with an optional image.", "options": ["centered"] },
+    "columns": { "label": "Columns", "options": ["contained"] },
+    "cards": { "label": "Cards" }
+  },
+  "sectionStyles": ["highlight", "dark"],
+  "settings": [],
+  "permissions": {}
+}

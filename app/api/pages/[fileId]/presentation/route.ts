@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function PUT(request: Request, context: { params: Promise<{ fileId: string }> }) {
   const { fileId } = await context.params;
   if (!isSafeId(fileId)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  const site = await requireSite(request, "presentation");
+  const site = await requireSite(request, "presentation", "editor");
   if (!site.ok) return site.response;
   const read = await readJsonBody(request);
   if (!read.ok) return read.response;

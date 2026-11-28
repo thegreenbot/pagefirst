@@ -1,0 +1,2 @@
+.cards{display:grid;gap:1rem;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr))}
+.cards>div{border:1px solid color-mix(in srgb,currentColor 20%,transparent);border-radius:.5rem;padding:1rem}

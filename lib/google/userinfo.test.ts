@@ -14,12 +14,17 @@ function respond(body: unknown, status = 200) {
 describe("fetchGoogleIdentity", () => {
   test("returns sub and a lower-cased verified email", async () => {
     respond({ sub: "123", email: "Will@Example.com", email_verified: true });
-    assert.deepEqual(await fetchGoogleIdentity("t"), { sub: "123", email: "will@example.com" });
+    assert.deepEqual(await fetchGoogleIdentity("t"), { sub: "123", email: "will@example.com", hd: null });
+  });
+
+  test("returns the Workspace domain, lower-cased, when Google sends hd", async () => {
+    respond({ sub: "123", email: "w@corp.com", email_verified: true, hd: "Corp.com" });
+    assert.deepEqual(await fetchGoogleIdentity("t"), { sub: "123", email: "w@corp.com", hd: "corp.com" });
   });
 
   test("drops an unverified email", async () => {
     respond({ sub: "123", email: "will@example.com", email_verified: false });
-    assert.deepEqual(await fetchGoogleIdentity("t"), { sub: "123", email: null });
+    assert.deepEqual(await fetchGoogleIdentity("t"), { sub: "123", email: null, hd: null });
   });
 
   test("returns null when Google refuses the token or the body has no sub", async () => {
