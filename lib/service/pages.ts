@@ -1,4 +1,5 @@
 import { databaseConfigured } from "@/lib/db/client";
+import { planAdopt, type AdoptReport } from "@/lib/google/adopt";
 import { annotateChanged, changedInDoc } from "./changes";
 import { snapshotPage } from "./snapshots";
 import { buildAdoptRequests, buildCommitRequests } from "@/lib/google/commit";
@@ -201,7 +202,13 @@ async function commitLive(ctx: ServiceContext, token: string, fileId: string, ba
   }
 
   if (requests.length > 0) await google.batchUpdate(token, fileId, requests);
-  const updated = await google.fetchDocument(token, fileId);
+  let updated = await google.fetchDocument(token, fileId);
+  // Content typed in Docs has no id yet; track it now so the snapshot below holds ids that last (#32).
+  const adopt = planAdopt(updated);
+  if (adopt.requests.length > 0) {
+    await google.batchUpdate(token, fileId, adopt.requests);
+    updated = await google.fetchDocument(token, fileId);
+  }
   const page = parseDocument(updated, slugify(updated.title ?? ""));
   // The next import diffs the Doc against this (#29).
   await snapshotPage(ctx, google, page, "commit");
@@ -237,5 +244,38 @@ export async function commit(ctx: ServiceContext, fileId: string, baseRevisionId
       error: typed.message,
       ...(code === "upstream_quota" && typed.retryAfterSeconds ? { retryAfterSeconds: typed.retryAfterSeconds } : {}),
     };
+  }
+}
+
+
+export type AdoptResult = { page: Page; report: AdoptReport; wrote: boolean };
+
+/**
+ * Gives every node in the Doc a named range (#32). It writes only named ranges,
+ * which change nothing a reader sees, and writes nothing when the Doc is already
+ * tracked. A Doc write, so it needs the commit scope and the folder allow-list.
+ */
+export async function adoptPage(ctx: ServiceContext, fileId: string): Promise<AdoptResult> {
+  requireScope(ctx, "pages:commit");
+  if (!isSafeId(fileId)) throw new ServiceError("invalid", "Invalid page id.");
+  if (isSample(ctx)) {
+    ensureSample();
+    const page = samplePages.get(fileId);
+    if (!page) throw new ServiceError("not_found", "Page not found");
+    return { page, report: { adopted: 0, duplicated: [], orphans: [], reanchored: [] }, wrote: false };
+  }
+  const token = liveToken(ctx);
+  try {
+    await requireFolder(ctx, fileId);
+    const google = googleFor(ctx);
+    let doc = await google.fetchDocument(token, fileId);
+    const plan = planAdopt(doc);
+    if (plan.requests.length > 0) {
+      await google.batchUpdate(token, fileId, plan.requests);
+      doc = await google.fetchDocument(token, fileId);
+    }
+    return { page: parseDocument(doc, slugify(doc.title ?? "")), report: plan.report, wrote: plan.requests.length > 0 };
+  } catch (err) {
+    throw toServiceError(err, "Could not adopt the page.", (text) => redact(text, token));
   }
 }
