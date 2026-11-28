@@ -13,15 +13,17 @@ const ACTIVE = { state: "active" as const, message: null, records: [] };
 function setup() {
   const provider = createFakeProvider();
   const hosts = new Map<string, string>();
+  const canonical = new Map<string, string>();
   const deps: DomainDeps = {
     provider,
     hosts: {
       put: async (hostname, siteId) => void hosts.set(hostname, siteId),
       remove: async (hostname) => void hosts.delete(hostname),
+      canonical: async (siteId, hostname) => void (hostname ? canonical.set(siteId, hostname) : canonical.delete(siteId)),
     },
     limits: { perSite: 2, perAccount: 3 },
   };
-  return { provider, hosts, deps };
+  return { provider, hosts, canonical, deps };
 }
 
 const refOf = (provider: ReturnType<typeof createFakeProvider>, hostname: string) => [...provider.states.keys()].find((ref) => ref.endsWith(`:${hostname}`))!;
@@ -144,14 +146,16 @@ describe("custom domain service", { skip: url ? false : "set TEST_DATABASE_URL t
   });
 
   test("removing stops serving first, drops the provider record, frees the hostname and is audited", async () => {
-    const { provider, hosts, deps } = setup();
+    const { provider, hosts, canonical, deps } = setup();
     const view = await addSiteDomain(bob, "shop.bob-site.com", deps);
     provider.set(refOf(provider, "shop.bob-site.com"), ACTIVE);
     await checkSiteDomain(bob, view.domain.id, deps);
     assert.equal(hosts.has("shop.bob-site.com"), true);
+    assert.equal(canonical.get(bob.siteId), "shop.bob-site.com", "the site's other addresses redirect to its active domain");
 
     await removeSiteDomain(bob, view.domain.id, deps);
     assert.equal(hosts.has("shop.bob-site.com"), false);
+    assert.equal(canonical.has(bob.siteId), false, "no redirect is left pointing at a removed host");
     assert.equal(provider.removed.length, 1);
     assert.equal(await findHeldDomain("shop.bob-site.com"), null);
     const events = await query<{ event: string; page_path: string }>("SELECT event, page_path FROM audit_events WHERE page_path = 'shop.bob-site.com' ORDER BY at, id");

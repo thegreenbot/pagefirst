@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db/client";
-import { deleteHost, putHost } from "@/lib/publish/r2";
+import { deleteCanonicalHost, deleteHost, putCanonicalHost, putHost } from "@/lib/publish/r2";
 import { publishDomain } from "@/lib/publish/sites";
 import { isApex, normalizeHostname, withinLimits, type DomainLimits } from "./hostname";
 import { configuredDomainProvider } from "./index";
@@ -29,6 +29,8 @@ export class DomainServiceError extends Error {
 export type HostStore = {
   put(hostname: string, siteId: string): Promise<void>;
   remove(hostname: string): Promise<void>;
+  /** The hostname a site's other addresses redirect to, or null to clear it. */
+  canonical(siteId: string, hostname: string | null): Promise<void>;
 };
 
 export type DomainDeps = {
@@ -44,7 +46,11 @@ export const DEFAULT_LIMITS: DomainLimits = { perSite: 5, perAccount: 25 };
 export function defaultDeps(): DomainDeps {
   return {
     provider: configuredDomainProvider(),
-    hosts: { put: putHost, remove: deleteHost },
+    hosts: {
+      put: putHost,
+      remove: deleteHost,
+      canonical: (siteId, hostname) => (hostname ? putCanonicalHost(siteId, hostname) : deleteCanonicalHost(siteId)),
+    },
     limits: DEFAULT_LIMITS,
     reserved: (process.env.RESERVED_DOMAINS ?? "").split(",").map((host) => host.trim()).filter(Boolean),
   };
@@ -85,6 +91,19 @@ async function forgetHostFile(siteId: string, hostname: string): Promise<void> {
   await query("DELETE FROM site_files WHERE site_id = $1 AND key = $2", [siteId, `host:${hostname}`]);
 }
 
+/**
+ * Points the site's other addresses at its oldest active custom domain, leaving
+ * out `except`. Called before a host record is removed, so the redirect never
+ * leads to a hostname that has stopped serving.
+ */
+async function syncCanonical(siteId: string, except: string | null, deps: DomainDeps): Promise<void> {
+  const rows = await query<{ hostname: string }>(
+    "SELECT hostname FROM site_domains WHERE site_id = $1 AND status = 'active' AND hostname <> $2 ORDER BY verified_at, created_at LIMIT 1",
+    [siteId, except ?? ""],
+  );
+  await deps.hosts.canonical(siteId, rows[0]?.hostname ?? null);
+}
+
 /** Starts serving the hostname. Writes the host record, then marks the domain active. */
 async function activate(actor: Actor, domain: SiteDomain, deps: DomainDeps): Promise<SiteDomain> {
   await deps.hosts.put(domain.hostname, domain.siteId);
@@ -95,6 +114,7 @@ async function activate(actor: Actor, domain: SiteDomain, deps: DomainDeps): Pro
     throw new DomainServiceError("not_found", "Domain not found");
   }
   await recordHostFile(domain.siteId, domain.hostname);
+  await syncCanonical(domain.siteId, null, deps);
   if (domain.status !== "active") await audit(actor, "site.domain.activated", domain.hostname);
   return active;
 }
@@ -102,6 +122,7 @@ async function activate(actor: Actor, domain: SiteDomain, deps: DomainDeps): Pro
 /** Stops serving the hostname, keeping the domain so the owner can fix DNS and retry. */
 async function deactivate(actor: Actor, domain: SiteDomain, status: "pending" | "verifying" | "error", message: string | null, deps: DomainDeps): Promise<SiteDomain> {
   if (domain.status === "active") {
+    await syncCanonical(domain.siteId, domain.hostname, deps);
     await deps.hosts.remove(domain.hostname);
     await forgetHostFile(domain.siteId, domain.hostname);
     await audit(actor, "site.domain.deactivated", domain.hostname);
@@ -190,6 +211,7 @@ export async function removeSiteDomain(actor: Actor, id: string, deps: DomainDep
   }
   if (!domain) throw new DomainServiceError("not_found", "Domain not found");
   // Serving stops before anything else, so a failure below never leaves a live host behind.
+  await syncCanonical(domain.siteId, domain.hostname, deps);
   await deps.hosts.remove(domain.hostname);
   await forgetHostFile(domain.siteId, domain.hostname);
   if (deps.provider && domain.providerRef) {
