@@ -56,6 +56,9 @@ export default async function Home({
             <Link href="/orgs" className="shrink-0 hover:text-ink">
               Organizations
             </Link>
+            <Link href="/site/speed" className="shrink-0 hover:text-ink">
+              Speed
+            </Link>
             <Link href="/plan" className="shrink-0 hover:text-ink">
               Plan
             </Link>

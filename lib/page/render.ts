@@ -18,7 +18,7 @@ export function renderPageHtml(
 ): RenderResult {
   const theme = context?.theme ?? getDefaultTheme();
   const applied = withPresentation(page, context?.config ?? null, context?.presentation ?? null);
-  return renderPage(applied.page, theme, { ...applied.options, mode, csp: publishedCsp, optimizer: nodeOptimizer, images });
+  return renderPage(applied.page, theme, { ...applied.options, mode, csp: publishedCsp, optimizer: nodeOptimizer, images, ...(context?.beacon ? { beacon: { ...context.beacon, path: page.path } } : {}) });
 }
 
 export function renderPublishHtml(page: Page): string {

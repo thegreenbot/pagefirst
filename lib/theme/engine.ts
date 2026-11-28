@@ -1,6 +1,7 @@
 import { Liquid, Tag, Value, type Context, type Emitter, type TagToken, type TopLevelToken } from "liquidjs";
 import type { Block, Page, Prose } from "@/lib/page/types";
 import { CRITICAL_CSS_BUDGET_BYTES, minifyCss, pruneUnusedOptions } from "./css";
+import { beaconScript, type Beacon } from "./beacon";
 import { ISLAND_CSS, ISLAND_LOADER, JS_BUDGET_BYTES } from "./islands";
 import type { BlockLoad } from "./manifest";
 import type { ThemePackage } from "./package";
@@ -17,6 +18,8 @@ export type RenderMode = "edit" | "publish";
 
 export type RenderOptions = {
   mode?: RenderMode;
+  /** Opt-in field speed beacon (#70), published renders only. Without it the page ships no script of its own. */
+  beacon?: Beacon;
   template?: string;
   site?: { name?: string; url?: string; lang?: string };
   settings?: Record<string, unknown>;
@@ -566,13 +569,22 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
       warnings.push(`Critical CSS is ${over} bytes over its ${CRITICAL_CSS_BUDGET_BYTES} byte budget, including ${optimizer.gzipSize(customCss)} bytes of custom CSS`);
     }
   }
+  const beacon = mode === "publish" && options.beacon ? beaconScript(options.beacon) : "";
+  let beaconOrigin = "";
+  if (beacon) {
+    try {
+      beaconOrigin = new URL(options.beacon!.endpoint).origin;
+    } catch {
+      warnings.push("The speed beacon endpoint is not a valid URL; the beacon was left out");
+    }
+  }
   const criticalCss = fonts.css + (hasIslands ? ISLAND_CSS : "") + css.critical;
   const csp = options.csp
     ? options.csp([tokenStyle, criticalCss], {
         selfStyles: !!css.deferred,
-        scripts: hasIslands ? [ISLAND_LOADER] : [],
+        scripts: [...(hasIslands ? [ISLAND_LOADER] : []), ...(beaconOrigin ? [beacon] : [])],
         permissions: {
-          connect: [...(manifest.permissions?.connect ?? [])],
+          connect: [...(manifest.permissions?.connect ?? []), ...(beaconOrigin ? [beaconOrigin] : [])],
           img: [...(manifest.permissions?.img ?? [])],
           frame: [...(manifest.permissions?.frame ?? [])],
         },
@@ -598,6 +610,7 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
   const foot = [
     css.deferred ? `<link rel="stylesheet" href="/${css.deferred.path}">` : "",
     hasIslands ? `<script>${ISLAND_LOADER}</script>` : "",
+    beaconOrigin ? `<script>${beacon}</script>` : "",
   ]
     .filter(Boolean)
     .join("\n");
