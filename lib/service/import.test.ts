@@ -2,77 +2,12 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { closeDatabase, query } from "@/lib/db/client";
 import { resetTestDatabase, testDatabaseUrl } from "@/lib/db/test-db";
-import type { DocsDocument } from "@/lib/page/types";
 import { getImport } from "@/lib/import/store";
 import { baseSnapshot, recordSnapshot } from "@/lib/snapshots/store";
 import { parseDocument } from "@/lib/page/parse";
 import { recordAudit } from "@/lib/audit";
+import { fake, makeDoc } from "@/lib/testing/fake-doc";
 import { importAndPublish, importPage, publish, ServiceError, type GoogleClient, type ServiceContext } from "./index";
-
-type Range = { startIndex: number; endIndex: number };
-
-function makeDoc(texts: string[], named: boolean): DocsDocument {
-  return {
-    documentId: "doc1",
-    revisionId: "rev1",
-    title: "Doc",
-    body: {
-      content: texts.map((text, i) => ({
-        startIndex: 1 + 10 * i,
-        endIndex: 11 + 10 * i,
-        paragraph: { elements: [{ textRun: { content: `${text}\n` } }], paragraphStyle: { namedStyleType: i === 0 ? "HEADING_1" : "NORMAL_TEXT" } },
-      })),
-    },
-    namedRanges: named
-      ? Object.fromEntries(texts.map((_, i) => [`pg/node/n${i}`, { name: `pg/node/n${i}`, namedRanges: [{ namedRangeId: `r${i}`, name: `pg/node/n${i}`, ranges: [{ startIndex: 1 + 10 * i, endIndex: 10 + 10 * i }] }] }]))
-      : {},
-  } as DocsDocument;
-}
-
-function fake(initial: DocsDocument) {
-  const doc = initial;
-  let revision = 1;
-  const writes: object[][] = [];
-  const bump = () => {
-    revision += 1;
-    doc.revisionId = `rev${revision}`;
-  };
-  const google: GoogleClient = {
-    listDocuments: async () => [],
-    fetchDocument: async () => structuredClone(doc),
-    createDocument: async () => structuredClone(doc),
-    batchUpdate: async (_token, _fileId, requests) => {
-      writes.push(requests);
-      for (const request of requests as { createNamedRange?: { name: string; range: Range }; deleteNamedRange?: { name: string } }[]) {
-        doc.namedRanges ??= {};
-        if (request.deleteNamedRange) delete doc.namedRanges[request.deleteNamedRange.name];
-        if (request.createNamedRange) {
-          const { name, range } = request.createNamedRange;
-          (doc.namedRanges[name] ??= { name, namedRanges: [] }).namedRanges!.push({ namedRangeId: `x${Math.random()}`, name, ranges: [range] } as never);
-        }
-      }
-      bump();
-      return {};
-    },
-    driveMeta: async () => ({ modifiedTime: "2026-11-27T12:00:00Z", lastModifiedBy: { name: "Pat", email: "pat@example.com" } }),
-  };
-  return {
-    google,
-    writes,
-    /** Someone edits paragraph `i` in Google Docs. */
-    edit(i: number, text: string) {
-      (doc.body!.content![i]!.paragraph!.elements![0]!.textRun!.content as string) = `${text}\n`;
-      bump();
-    },
-    suggest() {
-      (doc.body!.content![1]!.paragraph!.elements![0] as Record<string, unknown>).suggestedInsertionIds = ["sug1"];
-      bump();
-    },
-    get doc() {
-      return doc;
-    },
-  };
-}
 
 const url = testDatabaseUrl();
 

@@ -26,6 +26,8 @@ export type ImportOptions = {
   policy?: ConflictPolicy;
   /** Report only: no Doc write, no snapshot. */
   dryRun?: boolean;
+  /** Refuse, before writing anything, unless the Doc is still at this revision: the one a reviewer saw in a dry run. */
+  expectRevisionId?: string;
   /** The editor's uncommitted ops, so conflicts with the Doc can be found. Automated callers have none. */
   draftOps?: Op[];
 };
@@ -38,6 +40,8 @@ export type ImportResult = {
   /** True when Pagefirst had no snapshot of this Doc, so everything counts as new. */
   firstImport: boolean;
   fromRevisionId: string | null;
+  /** The Doc's revision when the import started, before adopting. A dry run reports it, and an approved run pins it. */
+  reviewedRevisionId: string;
   toRevisionId: string;
   /** What changed in the Doc since the base snapshot. */
   changes: PageChange[];
@@ -74,6 +78,10 @@ export async function importPage(ctx: ServiceContext, fileId: string, options: I
     await requireFolder(ctx, fileId);
     const google = googleFor(ctx);
     let doc = await google.fetchDocument(token, fileId);
+    const reviewedRevisionId = doc.revisionId ?? "";
+    if (options.expectRevisionId && reviewedRevisionId !== options.expectRevisionId) {
+      throw new ServiceError("conflict", "The Doc changed since it was reviewed. Run the import again.");
+    }
 
     // Adopt untracked content first: a Doc write of named ranges only, covered by the import scope.
     const plan = planAdopt(doc);
@@ -111,6 +119,7 @@ export async function importPage(ctx: ServiceContext, fileId: string, options: I
       policy,
       firstImport: base === null,
       fromRevisionId: base?.revisionId ?? null,
+      reviewedRevisionId,
       toRevisionId: docPage.revisionId,
       changes,
       conflicts: merged.conflicts,
