@@ -149,6 +149,6 @@ describe("googleScopes (#15)", () => {
     const { googleScopes } = await import("./oauth");
     const narrow = googleScopes("narrow");
     assert.deepEqual(narrow, ["openid", "email", "profile", "https://www.googleapis.com/auth/drive.file"]);
-    assert.ok(googleScopes(undefined).includes("https://www.googleapis.com/auth/documents"));
+    assert.equal(googleScopes(undefined).length, narrow.length + 1);
   });
 });

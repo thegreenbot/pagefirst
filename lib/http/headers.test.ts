@@ -13,10 +13,10 @@ describe("appContentSecurityPolicy", () => {
   });
 
   test("allows the Google Picker only when it is configured", () => {
-    assert.doesNotMatch(appContentSecurityPolicy("n", { picker: false }), /docs\.google\.com/);
-    const policy = appContentSecurityPolicy("n", { picker: true });
-    assert.match(policy, /frame-src https:\/\/docs\.google\.com/);
-    assert.match(policy, /connect-src 'self' https:\/\/apis\.google\.com/);
+    const directives = (picker: boolean) => appContentSecurityPolicy("n", { picker }).split("; ");
+    assert.ok(!directives(false).some((d) => d.startsWith("frame-src")));
+    assert.ok(directives(true).includes("frame-src https://docs.google.com https://accounts.google.com"));
+    assert.ok(directives(true).includes("connect-src 'self' https://apis.google.com"));
   });
 
   test("adds eval and websockets only for the dev server", () => {
