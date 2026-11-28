@@ -5,8 +5,21 @@
 
 export const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+/**
+ * Routes authenticated by a bearer token only, never a cookie, so a cross-site
+ * request gains nothing: the theme registry's trusted-publishing upload (#64),
+ * called from GitHub Actions with an OIDC token, the versioned API and the MCP server on top of it, which
+ * authenticates with an API key or OAuth token and ignores cookies (#36), SCIM
+ * provisioning with a per-organization bearer token (#49), and the Stripe
+ * webhook, which is authenticated by its signature over the body (#47).
+ */
+const TOKEN_ROUTES = [/^\/api\/registry\/versions$/, /^\/api\/v1\//, /^\/api\/mcp$/, /^\/api\/oauth\/register$/, /^\/api\/billing\/webhook$/, /^\/api\/scim\/v2\//];
+
+/** Public OAuth endpoints that read no cookie and take form-encoded bodies. */
+const FORM_ROUTES = [/^\/api\/oauth\/(token|revoke)$/];
+
 /** Routes whose body, when there is one, must be JSON. */
-const JSON_ROUTES = [/^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/];
+const JSON_ROUTES = [/^\/api\/billing\/(checkout|portal)$/, /^\/api\/orgs\/[^/]+\/(scim-tokens|domain)$/, /^\/api\/pages\/[^/]+\/commit$/, /^\/api\/pages\/[^/]+\/publish$/, /^\/api\/keys$/, ...TOKEN_ROUTES];
 
 function configuredOrigin(): string | null {
   const value = process.env.APP_URL?.trim();
@@ -54,7 +67,7 @@ function hasBody(request: Request): boolean {
 
 export function isJsonContentType(value: string | null): boolean {
   const type = value?.split(";")[0]?.trim().toLowerCase();
-  return type === "application/json";
+  return type === "application/json" || type === "application/scim+json";
 }
 
 export type MutationCheck = { ok: true } | { ok: false; status: 403 | 415; error: string };
@@ -67,7 +80,8 @@ export type MutationCheck = { ok: true } | { ok: false; status: 403 | 415; error
  */
 export function checkMutation(request: Request, pathname: string): MutationCheck {
   if (SAFE_METHODS.has(request.method.toUpperCase())) return { ok: true };
-  if (!sameOrigin(request)) {
+  const tokenRoute = TOKEN_ROUTES.some((pattern) => pattern.test(pathname)) || FORM_ROUTES.some((pattern) => pattern.test(pathname));
+  if (!tokenRoute && !sameOrigin(request)) {
     return { ok: false, status: 403, error: "Cross-site request refused." };
   }
   if (isJsonRoute(pathname) && hasBody(request) && !isJsonContentType(request.headers.get("content-type"))) {

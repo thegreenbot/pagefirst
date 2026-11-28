@@ -1,0 +1,12 @@
+body{margin:0;background:var(--pf-color-paper);color:var(--pf-color-ink);font-family:var(--pf-font-body);line-height:1.6}
+.masthead,.colophon,main{max-width:var(--pf-measure);margin:0 auto;padding:0 1rem}
+.masthead{border-bottom:3px solid var(--pf-color-brand);padding-top:1rem;padding-bottom:.5rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.colophon{border-top:1px solid currentColor;padding-top:1rem;padding-bottom:2rem;font-size:.875rem}
+h1,h2,h3,h4{line-height:1.15;letter-spacing:-.01em}
+h1{font-size:clamp(2rem,5vw,3.25rem)}
+a{color:var(--pf-color-brand)}
+.section{margin:var(--pf-space-section) 0}
+.section.highlight{background:color-mix(in srgb,var(--pf-color-brand) 8%,transparent);padding:1.5rem}
+.section.dark{background:var(--pf-color-ink);color:var(--pf-color-paper);padding:1.5rem}
+.section.dark a{color:inherit}
+img{max-width:100%;height:auto;display:block}

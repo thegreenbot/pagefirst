@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="{{ site.lang }}">
+<head>
+{% pf_head %}
+</head>
+<body>
+{% render "partials/masthead", site: site, page: page %}
+<main>
+{% for section in page.sections -%}
+<div class="{{ section.style | classes: 'section' }}"{% pf_id section %}>{% for node in section.children %}{% pf_node node %}{% endfor %}</div>
+{% endfor -%}
+</main>
+{% render "partials/colophon", site: site %}
+{% pf_foot %}
+</body>
+</html>
