@@ -40,11 +40,11 @@ export async function PUT(request: Request) {
   if (!read.ok) return read.response;
   try {
     const config = await updateSiteTheme(site.siteId, read.body);
-    await auditRequest(request, { event: "site.theme.update", outcome: "ok" });
+    await auditRequest(request, { event: "site.theme.update", outcome: "ok", siteId: site.siteId });
     return NextResponse.json(await describe(config));
   } catch (error) {
     const plan = error instanceof PlanError;
-    await auditRequest(request, { event: "site.theme.update", outcome: "error", status: plan ? 402 : 400, errorCode: plan ? "plan_required" : "invalid_config" });
+    await auditRequest(request, { event: "site.theme.update", outcome: "error", status: plan ? 402 : 400, errorCode: plan ? "plan_required" : "invalid_config", siteId: site.siteId });
     return configErrorResponse(error);
   }
 }

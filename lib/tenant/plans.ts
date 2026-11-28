@@ -7,7 +7,7 @@
 export const PLANS = ["free", "pro", "team", "enterprise"] as const;
 export type Plan = (typeof PLANS)[number];
 
-export const FEATURES = ["customCss", "templateOverrides", "scim", "domainLock"] as const;
+export const FEATURES = ["customCss", "templateOverrides", "scim", "domainLock", "themeGovernance"] as const;
 export type Feature = (typeof FEATURES)[number];
 
 const PAID: readonly Plan[] = ["pro", "team", "enterprise"];
@@ -19,6 +19,7 @@ const UNLOCKS: Record<Feature, readonly Plan[]> = {
   templateOverrides: PAID,
   scim: ENTERPRISE,
   domainLock: ENTERPRISE,
+  themeGovernance: ENTERPRISE,
 };
 
 const FEATURE_NAMES: Record<Feature, string> = {
@@ -26,6 +27,7 @@ const FEATURE_NAMES: Record<Feature, string> = {
   templateOverrides: "Template overrides",
   scim: "SCIM provisioning",
   domainLock: "Domain lock",
+  themeGovernance: "Theme governance",
 };
 
 export function isPlan(value: unknown): value is Plan {

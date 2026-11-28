@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { databaseConfigured, query, transaction } from "@/lib/db/client";
 import { speedReportEnabled } from "./speed";
+import { checkThemeUpdate, readSitePolicy, withLockedTokens } from "./theme-policy";
 import { ensurePersonalOrg, requireFeature, siteAllows } from "@/lib/tenant/orgs";
 import type { ThemeManifest } from "@/lib/theme/manifest";
 import type { ThemePackage } from "@/lib/theme/package";
@@ -294,6 +295,7 @@ export async function readSiteTheme(siteId: string): Promise<SiteThemeConfig> {
 export async function updateSiteTheme(siteId: string, input: unknown): Promise<SiteThemeConfig> {
   const current = await readSiteTheme(siteId);
   const next = await resolveUpdate(current, input);
+  checkThemeUpdate(await readSitePolicy(siteId), current, next);
   // Changing either needs a paid plan on the hosted service; clearing never does.
   if (next.customCss !== current.customCss && next.customCss !== "") await requireFeature(siteId, "customCss");
   if (JSON.stringify(next.templateOverrides) !== JSON.stringify(current.templateOverrides) && Object.keys(next.templateOverrides).length) {
@@ -410,7 +412,9 @@ export async function renderContextFor(sub: string | null, fileId: string, selec
   // Stored custom CSS stops rendering when the plan no longer includes it (downgrade); it is kept, not deleted.
   const noCss = stored.customCss && !(await siteAllows(siteId, "customCss"));
   const noOverrides = Object.keys(stored.templateOverrides).length > 0 && !(await siteAllows(siteId, "templateOverrides"));
-  const config = noCss || noOverrides ? { ...stored, customCss: noCss ? "" : stored.customCss, templateOverrides: noOverrides ? {} : stored.templateOverrides } : stored;
+  const unlocked = noCss || noOverrides ? { ...stored, customCss: noCss ? "" : stored.customCss, templateOverrides: noOverrides ? {} : stored.templateOverrides } : stored;
+  // The organization's brand lock wins over the site's own tokens (#69).
+  const config = withLockedTokens(unlocked, await readSitePolicy(siteId));
   const [theme, presentation, speed] = await Promise.all([lockedPackage(config.lock.integrity), readPresentation(siteId, fileId), speedReportEnabled(siteId)]);
   const endpoint = speed ? vitalsEndpoint() : null;
   return { theme, config, presentation, ...(endpoint ? { beacon: { endpoint, site: siteId } } : {}) };
