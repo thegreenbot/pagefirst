@@ -1,13 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { databaseConfigured, query, transaction } from "@/lib/db/client";
 import { speedReportEnabled } from "./speed";
-import { checkThemeUpdate, readSitePolicy, withLockedTokens } from "./theme-policy";
+import { assertInstallable, checkThemeUpdate, readSitePolicy, withLockedTokens } from "./theme-policy";
 import { ensurePersonalOrg, orgIdForSite, requireFeature, siteAllows } from "@/lib/tenant/orgs";
 import type { ThemeManifest } from "@/lib/theme/manifest";
 import type { ThemePackage } from "@/lib/theme/package";
 import { orphanTokens, tokenDefs } from "@/lib/theme/tokens";
 import { bundledTheme, bundledThemes, DEFAULT_THEME_NAME, isVersionRange, packageIntegrity, satisfies } from "@/lib/theme/registry";
-import { latestVersion, listThemes, loadVerifiedVersion, resolveVersion } from "@/lib/theme/registry-store";
+import { latestVersion, listThemes, loadVerifiedVersion, resolveVersion, type TrustTier } from "@/lib/theme/registry-store";
 
 /**
  * Each site's theme config and each page's presentation, stored by the app
@@ -296,6 +296,7 @@ export async function updateSiteTheme(siteId: string, input: unknown): Promise<S
   const current = await readSiteTheme(siteId);
   const next = await resolveUpdate(current, input, await orgIdForSite(siteId));
   checkThemeUpdate(await readSitePolicy(siteId), current, next);
+  await assertInstallable(current, next, input);
   // Changing either needs a paid plan on the hosted service; clearing never does.
   if (next.customCss !== current.customCss && next.customCss !== "") await requireFeature(siteId, "customCss");
   if (JSON.stringify(next.templateOverrides) !== JSON.stringify(current.templateOverrides) && Object.keys(next.templateOverrides).length) {
@@ -327,7 +328,10 @@ export async function resolveUpdate(current: SiteThemeConfig, input: unknown, or
     if (!versionRange) versionRange = `^${lock.version}`;
   }
   const target = await lockedPackage(lock.integrity);
-  const update = validateUpdate(input, target.manifest, target);
+  // `acceptUnreviewed` is a confirmation read by assertInstallable (#68), not a config field.
+  const { acceptUnreviewed: _confirmation, ...fields } = raw;
+  void _confirmation;
+  const update = validateUpdate(fields, target.manifest, target);
   return { ...current, ...update, themeName, versionRange, lock };
 }
 
@@ -433,16 +437,16 @@ export function orphans(config: Pick<SiteThemeConfig, "tokens" | "settings">, th
 }
 
 /** A theme a site can switch to. */
-export type AvailableTheme = { name: string; version: string; description: string; source: "registry" | "bundled" };
+export type AvailableTheme = { name: string; version: string; description: string; source: "registry" | "bundled"; /** Who vouches for it (#68). Bundled themes are first-party. */ tier: TrustTier };
 
 /** Registry themes (newest installable version), plus bundled themes the registry does not list yet. */
 export async function availableThemes(siteId?: string): Promise<AvailableTheme[]> {
   const orgId = siteId && databaseConfigured() ? await orgIdForSite(siteId) : null;
   const published = databaseConfigured() ? await listThemes(orgId) : [];
-  const out: AvailableTheme[] = published.map((v) => ({ name: v.name, version: v.version, description: v.description, source: "registry" }));
+  const out: AvailableTheme[] = published.map((v) => ({ name: v.name, version: v.version, description: v.description, source: "registry", tier: v.tier }));
   for (const theme of bundledThemes()) {
     if (!out.some((t) => t.name === theme.manifest.name)) {
-      out.push({ name: theme.manifest.name, version: theme.manifest.version, description: theme.manifest.description ?? "", source: "bundled" });
+      out.push({ name: theme.manifest.name, version: theme.manifest.version, description: theme.manifest.description ?? "", source: "bundled", tier: "first-party" });
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
