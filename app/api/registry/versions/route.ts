@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { auditRequest } from "@/lib/audit-request";
 import { readTextCapped } from "@/lib/http/body";
-import { publishVersion, RegistryError } from "@/lib/theme/registry-store";
-import { checkAttestation, checkPublisher, PublishAuthError, verifyOidcToken } from "@/lib/theme/trusted-publishing";
+import { publisherRepositoryFor } from "@/lib/theme/publishers";
+import { loadArchive, publishVersion, RegistryError } from "@/lib/theme/registry-store";
+import { submitVersion } from "@/lib/theme/submissions";
+import { checkAttestation, checkPublisher, PublishAuthError, splitName, verifyOidcToken } from "@/lib/theme/trusted-publishing";
 
 export const dynamic = "force-dynamic";
 
@@ -44,18 +46,31 @@ export async function POST(request: Request) {
   const archive = new Uint8Array(Buffer.from(body.archive, "base64"));
 
   try {
+    const provenance = {
+      repository: claims.repository,
+      ref: claims.ref,
+      sha: claims.sha,
+      workflow: claims.job_workflow_ref,
+      runId: claims.run_id,
+      runAttempt: claims.run_attempt ?? null,
+      actor: claims.actor ?? null,
+      attestation: body.attestation,
+    };
+    const { name, version } = loadArchive(archive).manifest;
+    const scope = splitName(name)?.scope;
+    if (scope !== "pagefirst") {
+      // An invited publisher's version is checked in the sandbox and then waits for a system administrator.
+      const repository = await publisherRepositoryFor(name);
+      if (!scope || !repository) throw new PublishAuthError(`${name}: publishing under this scope is by invitation only`);
+      checkPublisher(claims, name, version, repository);
+      checkAttestation(body.attestation, archive, name, version, repository);
+      const submission = await submitVersion(archive, provenance, scope);
+      await auditRequest(request, { event: "registry.submit", outcome: "ok", pagePath: `${name}@${version}`, actorSub: actor });
+      return NextResponse.json({ id: submission.id, name, version, status: "pending" }, { status: 202 });
+    }
     const published = await publishVersion(
       archive,
-      {
-        repository: claims.repository,
-        ref: claims.ref,
-        sha: claims.sha,
-        workflow: claims.job_workflow_ref,
-        runId: claims.run_id,
-        runAttempt: claims.run_attempt ?? null,
-        actor: claims.actor ?? null,
-        attestation: body.attestation,
-      },
+      provenance,
       scores,
       (manifest) => {
         checkPublisher(claims, manifest.name, manifest.version);

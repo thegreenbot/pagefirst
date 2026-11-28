@@ -55,6 +55,20 @@ function checkPackage(theme: ThemePackage): { measured: Record<string, unknown>;
   return { measured, breaches };
 }
 
+/** Unpacks and loads an archive as a theme; nothing in it is executed. */
+export function loadArchive(archive: Uint8Array): ThemePackage {
+  try {
+    return loadThemeFromFiles(unpackTheme(archive));
+  } catch (error) {
+    throw new RegistryError(`The archive is not a valid theme: ${(error as Error).message}`);
+  }
+}
+
+/** The sandbox build of a theme: static checks plus a fixture render against the byte budgets. */
+export function inspectTheme(theme: ThemePackage): { findings: ReturnType<typeof checkTheme>; measured: Record<string, unknown>; breaches: Breach[] } {
+  return { findings: checkTheme(theme), ...checkPackage(theme) };
+}
+
 /**
  * Checks, countersigns and stores a version. The archive must load as a valid
  * theme, meet its byte budgets, and be a version the registry has not seen.
@@ -70,12 +84,7 @@ export async function publishVersion(
   /** A private version is always `private`; a public one defaults to first-party, the only publishers v1 admits. */
   tier: TrustTier = ownerOrg ? "private" : "first-party",
 ): Promise<ThemeVersion> {
-  let theme: ThemePackage;
-  try {
-    theme = loadThemeFromFiles(unpackTheme(archive));
-  } catch (error) {
-    throw new RegistryError(`The archive is not a valid theme: ${(error as Error).message}`);
-  }
+  const theme = loadArchive(archive);
   const { name, version } = theme.manifest;
   authorize?.(theme.manifest);
   if (!VERSION.test(version)) throw new RegistryError(`${version} is not a valid version`);

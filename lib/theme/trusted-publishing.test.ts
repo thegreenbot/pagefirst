@@ -102,7 +102,7 @@ describe("who may publish (#64)", () => {
   }
 
   test("refuses a theme outside @pagefirst", () => {
-    assert.throws(() => checkPublisher(goodClaims, "@someone/theme", "1.0.0"), /first-party @pagefirst themes only/);
+    assert.throws(() => checkPublisher(goodClaims, "@someone/theme", "1.0.0"), /only invited publishers/);
   });
 });
 
