@@ -4,7 +4,7 @@ import { databaseConfigured } from "@/lib/db/client";
 import { getSessionSub } from "@/lib/session";
 import { isPersonalOrg, listOrgMembers } from "@/lib/tenant/members";
 import { getOrganization, ROLES, roleOf } from "@/lib/tenant/orgs";
-import { cancelInviteAction, inviteAction, removeAction, roleAction } from "./actions";
+import { cancelInviteAction, deleteOrgAction, inviteAction, removeAction, roleAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +84,20 @@ export default async function Members({ params, searchParams }: { params: Promis
           <button type="submit" className={button}>Invite</button>
         </form>
       )}
+
+      {role === "owner" && !personal ? (
+        <form action={deleteOrgAction.bind(null, orgId)} className="mt-14 border-t border-rule pt-6">
+          <h2 className="font-serif text-xl text-ink">Delete organization</h2>
+          <p className="mt-2 text-sm text-ink-soft">Removes its sites, published files and data, and disconnects members who belong to no other organization. This cannot be undone.</p>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="text-sm text-ink-soft">
+              Type “{org.name}” to confirm
+              <input name="confirm" required className={`${field} mt-1 block w-72`} autoComplete="off" />
+            </label>
+            <button type="submit" className={button}>Delete</button>
+          </div>
+        </form>
+      ) : null}
     </main>
   );
 }

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { PoolClient } from "pg";
 import { query, transaction } from "@/lib/db/client";
+import { disconnectGoogle } from "@/lib/auth/server-sessions";
 import { revokeAllForUser } from "@/lib/oauth/store";
 import { PlanError, featureAllowed, isPlan, type Feature, type Plan } from "./plans";
 
@@ -157,9 +158,10 @@ export async function requireFeature(siteId: string, feature: Feature): Promise<
 }
 
 /**
- * Deletes an organization and everything it owns (cancellation). Google tokens
- * and API keys and OAuth tokens of members who belong to no other organization are
- * deleted too, so nothing can keep acting for a tenant that left.
+ * Deletes an organization and everything it owns (cancellation). The Google
+ * grants, sessions, API keys and OAuth tokens of members who belong to no other
+ * organization go too, and the Google grants are revoked at Google, so nothing
+ * can keep acting for a tenant that left.
  */
 export async function deleteOrganization(orgId: string): Promise<void> {
   const orphans = await transaction(async (client) => {
@@ -170,13 +172,14 @@ export async function deleteOrganization(orgId: string): Promise<void> {
     );
     const orphans = rows.map((row) => row.sub);
     await client.query("DELETE FROM organizations WHERE id = $1", [orgId]);
-    if (orphans.length > 0) {
-      await client.query("UPDATE api_keys SET revoked_at = now() WHERE sub = ANY($1) AND revoked_at IS NULL", [orphans]);
-      await client.query("DELETE FROM google_tokens WHERE sub = ANY($1)", [orphans]);
-    }
+    if (orphans.length > 0) await client.query("UPDATE api_keys SET revoked_at = now() WHERE sub = ANY($1) AND revoked_at IS NULL", [orphans]);
     return orphans;
   });
-  for (const sub of orphans) await revokeAllForUser(sub);
+  for (const sub of orphans) {
+    await revokeAllForUser(sub);
+    // Revokes the grant at Google, then deletes the stored tokens and sessions.
+    await disconnectGoogle(sub);
+  }
 }
 
 const DOMAIN = /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/;

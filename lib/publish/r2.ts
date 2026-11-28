@@ -86,6 +86,20 @@ export async function deleteSitePage(siteId: string, pagePath: string): Promise<
   await send("DELETE", siteObjectKey(siteId, pagePath));
 }
 
+/**
+ * Removes one file recorded in `site_files`: a bucket key under the site's own
+ * folder, a path inside the folder, or `host:<hostname>` for the hostname record.
+ * Used when an organization is deleted. A missing object is fine.
+ */
+export async function removeSiteFile(siteId: string, recorded: string): Promise<void> {
+  if (!SITE_ID.test(siteId)) throw new Error("Invalid site id");
+  if (recorded.startsWith("host:")) return send("DELETE", hostObjectKey(recorded.slice(5)));
+  if (recorded.startsWith(`sites/${siteId}/`)) return send("DELETE", recorded);
+  const keys = candidateKeys(`/${recorded}`);
+  if (!keys?.[0]) throw new Error("Invalid recorded path");
+  await send("DELETE", `sites/${siteId}/${keys[0]}`);
+}
+
 /** Points a hostname at a site. Only called after the app has checked who owns the site. */
 export async function putHost(hostname: string, siteId: string): Promise<void> {
   if (!SITE_ID.test(siteId)) throw new Error("Invalid site id");
