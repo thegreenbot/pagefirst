@@ -45,3 +45,16 @@ Set in the Vercel project (Production): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SEC
 - Seat counts change through `syncSeats(orgId)` (`lib/billing/billing.ts`), which must be called after members are added, removed or change role.
 
 Metered API usage (the Bulk API add-on) is not built; it needs its own Stripe meter and is tracked separately.
+
+## Publish limits (#195)
+
+On the hosted edition each plan caps publishing per organization:
+
+| Plan | Live published pages | Publishes per rolling 24 hours |
+|---|---|---|
+| Free | 10 | 20 |
+| Pro | 250 | 500 |
+| Team | 2,000 | 2,500 |
+| Enterprise | unlimited | unlimited |
+
+Previews are never counted, republishing a live page takes no new slot, and self-hosted installs are unlimited. Override a limit with `PAGEFIRST_LIMIT_<PLAN>_LIVE_PAGES` or `PAGEFIRST_LIMIT_<PLAN>_PUBLISHES_PER_DAY` (a number or `unlimited`), for example `PAGEFIRST_LIMIT_FREE_LIVE_PAGES=15`. A refused publish is recorded in the audit log as `public:plan_limit:<livePages|publishesPerDay>`. The editor shows usage from `GET /api/site/usage`.
