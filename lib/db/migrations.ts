@@ -648,4 +648,21 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX vitals_samples_site_idx ON vitals_samples (site_id, created_at DESC);
     `,
   },
+  {
+    id: 28,
+    name: "organization theme policy",
+    sql: `
+      -- One organization's theme governance (#69): brand tokens its sites cannot
+      -- change, which themes they may install, and whether a budget breach blocks publishing.
+      CREATE TABLE org_theme_policy (
+        org_id          text PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        locked_tokens   jsonb NOT NULL DEFAULT '{}',
+        allowed_themes  jsonb,
+        require_signed  boolean NOT NULL DEFAULT false,
+        block_on_budget boolean NOT NULL DEFAULT false,
+        updated_by      text,
+        updated_at      timestamptz NOT NULL DEFAULT now()
+      );
+    `,
+  },
 ];
