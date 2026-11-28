@@ -1,9 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { databaseConfigured, query, transaction } from "@/lib/db/client";
+import { ensurePersonalOrg, requireFeature, siteAllows } from "@/lib/tenant/orgs";
 import type { ThemeManifest } from "@/lib/theme/manifest";
 import type { ThemePackage } from "@/lib/theme/package";
 import { orphanTokens, tokenDefs } from "@/lib/theme/tokens";
-import { bundledTheme, DEFAULT_THEME_NAME, isVersionRange, packageIntegrity, satisfies } from "@/lib/theme/registry";
+import { bundledTheme, bundledThemes, DEFAULT_THEME_NAME, isVersionRange, packageIntegrity, satisfies } from "@/lib/theme/registry";
+import { latestVersion, listThemes, loadVerifiedVersion, resolveVersion } from "@/lib/theme/registry-store";
 
 /**
  * Each site's theme config and each page's presentation, stored by the app
@@ -50,6 +52,7 @@ const LIMITS = {
 };
 
 const IDENTIFIER = /^[a-z][a-z0-9-]{0,39}$/;
+const THEME_NAME = /^@[a-z0-9-]{1,39}\/[a-z0-9-]{1,64}$/;
 const TOKEN_KEY = /^[a-z][a-z0-9-]{0,63}$/;
 /** Token values become CSS custom properties (#57): no characters that end a declaration or a block. */
 const TOKEN_VALUE = /^[^;{}<>\\\u0000-\u001f]*$/;
@@ -70,7 +73,8 @@ export function validateUpdate(input: unknown, manifest: ThemeManifest, theme?: 
     }
   }
   if (input.themeName !== undefined) {
-    if (typeof input.themeName !== "string" || !bundledTheme(input.themeName)) {
+    // Availability is checked when the update locks to a version (registry or bundled).
+    if (typeof input.themeName !== "string" || !THEME_NAME.test(input.themeName)) {
       throw new ConfigError("themeName", "is not an available theme");
     }
     out.themeName = input.themeName;
@@ -117,7 +121,8 @@ export function validateUpdate(input: unknown, manifest: ThemeManifest, theme?: 
     if (typeof input.customCss !== "string" || input.customCss.length > LIMITS.customCss) {
       throw new ConfigError("customCss", `must be text of at most ${LIMITS.customCss} characters`);
     }
-    if (/<\/?style/i.test(input.customCss)) throw new ConfigError("customCss", "cannot contain a style tag");
+    if (input.customCss.includes("<")) throw new ConfigError("customCss", "cannot contain '<', so it cannot close the style element");
+    if (/@import/i.test(input.customCss)) throw new ConfigError("customCss", "cannot use @import; inline the rules instead");
     out.customCss = input.customCss;
   }
   if (input.templateOverrides !== undefined) {
@@ -180,7 +185,8 @@ export async function siteForOwner(sub: string): Promise<string> {
     if (again.rows[0]) return again.rows[0].id;
     const id = newSiteId();
     await client.query("INSERT INTO users (sub) VALUES ($1) ON CONFLICT (sub) DO NOTHING", [sub]);
-    await client.query("INSERT INTO sites (id, owner_sub) VALUES ($1, $2)", [id, sub]);
+    const orgId = await ensurePersonalOrg(client, sub);
+    await client.query("INSERT INTO sites (id, owner_sub, org_id) VALUES ($1, $2, $3)", [id, sub, orgId]);
     return id;
   });
 }
@@ -199,8 +205,13 @@ async function snapshot(theme: ThemePackage): Promise<string> {
   return integrity;
 }
 
-/** The exact package a lock points at, from the snapshot table. */
+/**
+ * The exact package a lock points at. Registry versions (sha512-) are verified
+ * against their integrity and the registry's countersignature on every load
+ * from storage (#64); bundled snapshots (sha256-) come from the snapshot table.
+ */
 export async function lockedPackage(integrity: string): Promise<ThemePackage> {
+  if (integrity.startsWith("sha512-")) return loadVerifiedVersion(integrity);
   const cached = packageCache.get(integrity);
   if (cached) return cached;
   const rows = await query<{ package: ThemePackage }>("SELECT package FROM theme_packages WHERE integrity = $1", [integrity]);
@@ -234,14 +245,28 @@ function fromRow(row: ConfigRow): SiteThemeConfig {
   };
 }
 
-/** Locks to the bundled theme of that name, which must satisfy the range. */
+/**
+ * Locks to the newest registry version of the theme in range (#64). A theme
+ * the registry does not list yet falls back to the copy bundled with the app.
+ */
 async function lockTo(themeName: string, versionRange: string): Promise<{ version: string; integrity: string }> {
+  const published = await resolveVersion(themeName, versionRange);
+  if (published) return { version: published.version, integrity: published.integrity };
   const theme = bundledTheme(themeName);
   if (!theme) throw new ConfigError("themeName", "is not an available theme");
   if (!satisfies(theme.manifest.version, versionRange)) {
     throw new ConfigError("versionRange", `${themeName} ${theme.manifest.version} does not satisfy ${versionRange}`);
   }
   return { version: theme.manifest.version, integrity: await snapshot(theme) };
+}
+
+/** Locks to the newest version of a theme, from the registry or else the bundled copy. */
+async function lockToLatest(themeName: string): Promise<{ version: string; integrity: string }> {
+  const published = await latestVersion(themeName);
+  if (published) return { version: published.version, integrity: published.integrity };
+  const theme = bundledTheme(themeName);
+  if (!theme) throw new ConfigError("themeName", "is not an available theme");
+  return lockTo(themeName, theme.manifest.version);
 }
 
 /** The site's config; the first read stores the default theme, locked to its current version. */
@@ -267,18 +292,49 @@ export async function readSiteTheme(siteId: string): Promise<SiteThemeConfig> {
  */
 export async function updateSiteTheme(siteId: string, input: unknown): Promise<SiteThemeConfig> {
   const current = await readSiteTheme(siteId);
-  const targetName = typeof (input as { themeName?: unknown })?.themeName === "string" ? (input as { themeName: string }).themeName : current.themeName;
-  const target = bundledTheme(targetName);
-  if (!target) throw new ConfigError("themeName", "is not an available theme");
+  const next = await resolveUpdate(current, input);
+  // Changing either needs a paid plan on the hosted service; clearing never does.
+  if (next.customCss !== current.customCss && next.customCss !== "") await requireFeature(siteId, "customCss");
+  if (JSON.stringify(next.templateOverrides) !== JSON.stringify(current.templateOverrides) && Object.keys(next.templateOverrides).length) {
+    await requireFeature(siteId, "templateOverrides");
+  }
+  await saveSiteTheme(siteId, next);
+  return next;
+}
+
+/**
+ * The config an update would produce, without saving it: the same validation
+ * and re-locking as a real update. Theme change previews (#66) render with it.
+ */
+export async function resolveUpdate(current: SiteThemeConfig, input: unknown): Promise<SiteThemeConfig> {
+  // Shape first, so a bad name or range fails before any lookup.
+  const raw = isRecord(input) ? input : {};
+  if (raw.themeName !== undefined && (typeof raw.themeName !== "string" || !THEME_NAME.test(raw.themeName))) {
+    throw new ConfigError("themeName", "is not an available theme");
+  }
+  if (raw.versionRange !== undefined && !isVersionRange(raw.versionRange)) throw new ConfigError("versionRange", "must be x.y.z, ^x.y.z or ~x.y.z");
+  const shape = raw as { themeName?: string; versionRange?: string };
+  const themeName = shape.themeName ?? current.themeName;
+  const themeChanged = themeName !== current.themeName;
+  // A new theme with no range locks to its newest version, and the range follows it.
+  let versionRange = shape.versionRange ?? (themeChanged ? "" : current.versionRange);
+  let lock = current.lock;
+  if (themeChanged || versionRange !== current.versionRange) {
+    lock = versionRange ? await lockTo(themeName, versionRange) : await lockToLatest(themeName);
+    if (!versionRange) versionRange = `^${lock.version}`;
+  }
+  const target = await lockedPackage(lock.integrity);
   const update = validateUpdate(input, target.manifest, target);
-  const next: SiteThemeConfig = { ...current, ...update };
-  if (update.themeName !== undefined && update.themeName !== current.themeName && update.versionRange === undefined) {
-    next.versionRange = `^${target.manifest.version}`;
-  }
-  if (next.themeName !== current.themeName || next.versionRange !== current.versionRange) {
-    next.lock = await lockTo(next.themeName, next.versionRange);
-  }
-  await query(
+  return { ...current, ...update, themeName, versionRange, lock };
+}
+
+/** Writes a resolved config, on the given connection when inside a transaction. */
+export async function saveSiteTheme(
+  siteId: string,
+  next: SiteThemeConfig,
+  run: (sql: string, params: unknown[]) => Promise<unknown> = query,
+): Promise<void> {
+  await run(
     `UPDATE site_themes SET theme_name = $2, version_range = $3, tokens = $4, settings = $5, custom_css = $6,
        template_overrides = $7, locks = $8, locked_version = $9, locked_integrity = $10, updated_at = now()
      WHERE site_id = $1`,
@@ -295,7 +351,6 @@ export async function updateSiteTheme(siteId: string, input: unknown): Promise<S
       next.lock.integrity,
     ],
   );
-  return next;
 }
 
 export async function readPresentation(siteId: string, fileId: string): Promise<PagePresentation> {
@@ -331,12 +386,16 @@ export type RenderContext = {
  * server session (sample mode, local dev), pages render with the default theme
  * and the Doc's own section styles, as before #56.
  */
-export async function renderContextFor(sub: string | null, fileId: string): Promise<RenderContext> {
+export async function renderContextFor(sub: string | null, fileId: string, selectedSite?: string): Promise<RenderContext> {
   if (!sub || !databaseConfigured()) {
     return { theme: bundledTheme(DEFAULT_THEME_NAME)!, config: null, presentation: null };
   }
-  const siteId = await siteForOwner(sub);
-  const config = await readSiteTheme(siteId);
+  const siteId = selectedSite ?? (await siteForOwner(sub));
+  const stored = await readSiteTheme(siteId);
+  // Stored custom CSS stops rendering when the plan no longer includes it (downgrade); it is kept, not deleted.
+  const noCss = stored.customCss && !(await siteAllows(siteId, "customCss"));
+  const noOverrides = Object.keys(stored.templateOverrides).length > 0 && !(await siteAllows(siteId, "templateOverrides"));
+  const config = noCss || noOverrides ? { ...stored, customCss: noCss ? "" : stored.customCss, templateOverrides: noOverrides ? {} : stored.templateOverrides } : stored;
   const [theme, presentation] = await Promise.all([lockedPackage(config.lock.integrity), readPresentation(siteId, fileId)]);
   return { theme, config, presentation };
 }
@@ -351,4 +410,19 @@ export function orphans(config: Pick<SiteThemeConfig, "tokens" | "settings">, th
     tokens: orphanTokens(theme, config.tokens),
     settings: Object.keys(config.settings).filter((id) => !declared.has(id)),
   };
+}
+
+/** A theme a site can switch to. */
+export type AvailableTheme = { name: string; version: string; description: string; source: "registry" | "bundled" };
+
+/** Registry themes (newest installable version), plus bundled themes the registry does not list yet. */
+export async function availableThemes(): Promise<AvailableTheme[]> {
+  const published = databaseConfigured() ? await listThemes() : [];
+  const out: AvailableTheme[] = published.map((v) => ({ name: v.name, version: v.version, description: v.description, source: "registry" }));
+  for (const theme of bundledThemes()) {
+    if (!out.some((t) => t.name === theme.manifest.name)) {
+      out.push({ name: theme.manifest.name, version: theme.manifest.version, description: theme.manifest.description ?? "", source: "bundled" });
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }

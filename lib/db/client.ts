@@ -112,10 +112,12 @@ export async function closeDatabase(): Promise<void> {
 }
 
 /** Records that a Google account signed in. */
-export async function upsertUser(sub: string, email: string | null): Promise<void> {
+/** `hd` is the Workspace domain at sign-in; omit it to leave the stored value alone. */
+export async function upsertUser(sub: string, email: string | null, hd?: string | null): Promise<void> {
   await query(
-    `INSERT INTO users (sub, email) VALUES ($1, $2)
-     ON CONFLICT (sub) DO UPDATE SET email = EXCLUDED.email, last_seen_at = now()`,
-    [sub, email],
+    `INSERT INTO users (sub, email, hd) VALUES ($1, $2, $3)
+     ON CONFLICT (sub) DO UPDATE SET email = EXCLUDED.email,
+       hd = CASE WHEN $4 THEN EXCLUDED.hd ELSE users.hd END, last_seen_at = now()`,
+    [sub, email, hd ?? null, hd !== undefined],
   );
 }

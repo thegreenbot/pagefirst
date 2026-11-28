@@ -1,0 +1,1 @@
+<div class="{{ block.options | classes: block.name }}"{% pf_id block %}>{% for row in block.rows %}{% for cell in row %}<div>{% for node in cell.children %}{% pf_node node %}{% endfor %}</div>{% endfor %}{% endfor %}</div>

@@ -1,0 +1,15 @@
+{
+  "name": "acme-pages",
+  "app_domain": "pages.acme.example",
+  "publish_domain": "acme-sites.example",
+  "cloudflare_account_id": "00000000000000000000000000000000",
+  "cloudflare_zone_id": "00000000000000000000000000000000",
+  "r2_location": "weur",
+  "vercel_team": "acme",
+  "git_repository": "acme/pagefirst",
+  "git_ref": "main",
+  "pagefirst_version": "v0.2.0",
+  "neon_region": "aws-eu-central-1",
+  "google_client_id": "000000000000-example.apps.googleusercontent.com",
+  "audit_admin_emails": ["admin@acme.example"]
+}

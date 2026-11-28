@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
-import { getDefaultTheme, type ThemePackage } from "./package";
+import { getBundledThemes, type ThemePackage } from "./package";
 
-/**
- * The themes this app can lock a site to. Until the registry (#64) exists,
- * that is the themes bundled under themes/.
- */
+export function bundledThemes(): ThemePackage[] {
+  return getBundledThemes();
+}
+
+/** A first-party theme shipped with the app under themes/, by package name. */
 export function bundledTheme(name: string): ThemePackage | null {
-  const theme = getDefaultTheme();
-  return theme.manifest.name === name ? theme : null;
+  return getBundledThemes().find((theme) => theme.manifest.name === name) ?? null;
 }
 
 export const DEFAULT_THEME_NAME = "@pagefirst/default";
