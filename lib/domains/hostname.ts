@@ -33,7 +33,7 @@ const MULTI_PART_SUFFIXES = new Set([
 
 const INTERNAL_SUFFIXES = ["localhost", "localdomain", "local", "internal", "intranet", "lan", "home", "corp", "test", "invalid", "example", "onion", "arpa"];
 
-const strip = (value: string) => value.trim().toLowerCase().replace(/^\*\./, "*.").replace(/\.$/, "");
+const strip = (value: string) => value.trim().toLowerCase().replace(/\.$/, "");
 
 export function normalizeHostname(input: string, rules: HostnameRules = {}): HostnameResult {
   if (typeof input !== "string") return { ok: false, reason: "Enter a domain name." };
