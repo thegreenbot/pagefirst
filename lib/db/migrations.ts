@@ -695,4 +695,16 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX org_theme_rollouts_org_idx ON org_theme_rollouts (org_id, created_at DESC);
     `,
   },
+  {
+    id: 31,
+    name: "theme trust tiers",
+    sql: `
+      -- Who vouches for a version (#68): first-party (this project), verified (identity checked,
+      -- reviewed by a person), community (automated checks only) or private (one organization's).
+      -- Not part of the immutable columns: a review can promote a version without rewriting it.
+      ALTER TABLE theme_versions ADD COLUMN trust_tier text NOT NULL DEFAULT 'first-party'
+        CHECK (trust_tier IN ('first-party', 'verified', 'community', 'private'));
+      UPDATE theme_versions SET trust_tier = 'private' WHERE owner_org IS NOT NULL;
+    `,
+  },
 ];

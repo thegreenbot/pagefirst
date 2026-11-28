@@ -1,6 +1,7 @@
 import { query } from "@/lib/db/client";
 import { orgIdForSite } from "@/lib/tenant/orgs";
 import { bundledTheme } from "@/lib/theme/registry";
+import { tierOfIntegrity } from "@/lib/theme/registry-store";
 import { ConfigError, type SiteThemeConfig } from "./theme-config";
 
 /**
@@ -116,4 +117,16 @@ export function withLockedTokens(config: SiteThemeConfig, policy: ThemePolicy): 
 /** Render warnings that mean a performance budget was exceeded (see lib/theme/engine.ts). */
 export function budgetWarnings(warnings: readonly string[]): string[] {
   return warnings.filter((warning) => /budget/i.test(warning));
+}
+
+/**
+ * A community theme version has passed automated checks only, so moving a site
+ * onto one needs an explicit `acceptUnreviewed: true` in the change (#68).
+ * First-party, verified and private versions, and bundled themes, need nothing.
+ */
+export async function assertInstallable(current: SiteThemeConfig, next: SiteThemeConfig, input: unknown): Promise<void> {
+  if (next.themeName === current.themeName && next.lock.integrity === current.lock.integrity) return;
+  if ((await tierOfIntegrity(next.lock.integrity)) !== "community") return;
+  const accepted = typeof input === "object" && input !== null && (input as { acceptUnreviewed?: unknown }).acceptUnreviewed === true;
+  if (!accepted) throw new ConfigError("acceptUnreviewed", `${next.themeName} is an unreviewed community theme: it passed automated checks only. Send acceptUnreviewed: true to install it.`);
 }

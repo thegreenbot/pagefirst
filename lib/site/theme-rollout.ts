@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { query, transaction } from "@/lib/db/client";
 import { orgIdForSite } from "@/lib/tenant/orgs";
 import { ConfigError, readSiteTheme, resolveUpdate, saveSiteTheme } from "./theme-config";
-import { checkThemeUpdate, readOrgPolicy } from "./theme-policy";
+import { assertInstallable, checkThemeUpdate, readOrgPolicy } from "./theme-policy";
 import { listSitePages } from "./theme-preview";
 
 /**
@@ -72,7 +72,9 @@ export async function checkChange(orgId: string, change: unknown, siteIds: strin
   for (const siteId of siteIds) {
     try {
       const current = await readSiteTheme(siteId);
-      checkThemeUpdate(policy, current, await resolveUpdate(current, change, orgId));
+      const next = await resolveUpdate(current, change, orgId);
+      checkThemeUpdate(policy, current, next);
+      await assertInstallable(current, next, change);
       out[siteId] = null;
     } catch (error) {
       if (!(error instanceof ConfigError)) throw error;
@@ -115,6 +117,7 @@ async function applyToSite(orgId: string, siteId: string, change: unknown): Prom
     const current = await readSiteTheme(siteId);
     const next = await resolveUpdate(current, change, orgId);
     checkThemeUpdate(policy, current, next);
+    await assertInstallable(current, next, change);
     await saveSiteTheme(siteId, next, (sql, params) => client.query(sql, params));
   });
   return (await listSitePages(siteId)).length;
