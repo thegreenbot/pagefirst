@@ -28,3 +28,16 @@ export async function readTextCapped(
   }
   return { ok: true, text: new TextDecoder().decode(bytes) };
 }
+
+/** A small JSON object body, or the error response to return. */
+export async function readJsonObject(request: Request, maxBytes = 4_000): Promise<Record<string, unknown> | Response> {
+  const read = await readTextCapped(request, maxBytes);
+  if (!read.ok) return Response.json({ error: "Request is too large." }, { status: 413 });
+  try {
+    const body = read.text ? JSON.parse(read.text) : {};
+    if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("not an object");
+    return body as Record<string, unknown>;
+  } catch {
+    return Response.json({ error: "Invalid JSON." }, { status: 400 });
+  }
+}

@@ -707,4 +707,38 @@ export const MIGRATIONS: Migration[] = [
       UPDATE theme_versions SET trust_tier = 'private' WHERE owner_org IS NOT NULL;
     `,
   },
+  {
+    id: 32,
+    name: "theme publishers and submissions",
+    sql: `
+      -- Outside theme publishers are invite-only (#68): a system administrator adds a scope
+      -- (@slug/) bound to one GitHub repository; only that repository's publish workflow may
+      -- submit versions under it.
+      CREATE TABLE theme_publishers (
+        slug        text PRIMARY KEY CHECK (slug ~ '^[a-z0-9][a-z0-9-]{1,38}$'),
+        repository  text NOT NULL UNIQUE,
+        invited_by  text NOT NULL,
+        created_at  timestamptz NOT NULL DEFAULT now(),
+        revoked_at  timestamptz
+      );
+      -- A submitted version waits here, unlisted, until a system administrator approves it.
+      CREATE TABLE theme_submissions (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name        text NOT NULL,
+        version     text NOT NULL,
+        integrity   text NOT NULL,
+        archive     bytea NOT NULL,
+        manifest    jsonb NOT NULL,
+        report      jsonb NOT NULL,
+        provenance  jsonb NOT NULL,
+        status      text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+        reviewed_by text,
+        reason      text,
+        created_at  timestamptz NOT NULL DEFAULT now(),
+        reviewed_at timestamptz
+      );
+      CREATE UNIQUE INDEX theme_submissions_pending_idx ON theme_submissions (name, version) WHERE status = 'pending';
+      CREATE INDEX theme_submissions_status_idx ON theme_submissions (status, created_at DESC);
+    `,
+  },
 ];

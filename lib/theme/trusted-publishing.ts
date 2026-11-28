@@ -97,16 +97,24 @@ export function trustedRepository(): string {
   return process.env.THEME_REGISTRY_TRUSTED_REPOSITORY || "thegreenbot/pagefirst";
 }
 
-/** The release tag a version must come from: theme-<dir>-v<version>, where dir is the name after @pagefirst/. */
+/** The scope and directory of a public theme name: `@scope/dir`. */
+export function splitName(name: string): { scope: string; dir: string } | null {
+  const match = /^@([a-z0-9][a-z0-9-]*)\/([a-z0-9-]+)$/.exec(name);
+  return match ? { scope: match[1]!, dir: match[2]! } : null;
+}
+
+/** The release tag a version must come from: theme-<dir>-v<version>, where dir is the name after the scope. */
 export function releaseTag(name: string, version: string): string {
-  const match = /^@pagefirst\/([a-z0-9-]+)$/.exec(name);
-  if (!match) throw new PublishAuthError(`${name}: the registry lists first-party @pagefirst themes only`);
-  return `theme-${match[1]}-v${version}`;
+  const parts = splitName(name);
+  if (!parts) throw new PublishAuthError(`${name}: theme names look like @scope/name`);
+  return `theme-${parts.dir}-v${version}`;
 }
 
 /** The token must come from the publish workflow, pushed as this version's tag, in the trusted repository. */
-export function checkPublisher(claims: OidcClaims, name: string, version: string): void {
-  const repo = trustedRepository();
+export function checkPublisher(claims: OidcClaims, name: string, version: string, repo = trustedRepository()): void {
+  if (splitName(name)?.scope !== "pagefirst" && repo === trustedRepository()) {
+    throw new PublishAuthError(`${name}: only invited publishers may use another scope`);
+  }
   const tag = `refs/tags/${releaseTag(name, version)}`;
   if (claims.repository !== repo) throw new PublishAuthError(`Only ${repo} may publish themes`);
   if (claims.event_name !== "push" || claims.ref_type !== "tag" || claims.ref !== tag) {
@@ -137,7 +145,7 @@ function pae(type: string, body: Buffer): Buffer {
  * `gh attestation verify` before upload; the registry keeps the bundle so
  * anyone can re-verify it later.
  */
-export function checkAttestation(bundle: unknown, archive: Uint8Array, name: string, version: string): void {
+export function checkAttestation(bundle: unknown, archive: Uint8Array, name: string, version: string, repo = trustedRepository()): void {
   const b = bundle as SigstoreBundle;
   const envelope = b?.dsseEnvelope;
   const rawCert = b?.verificationMaterial?.certificate?.rawBytes ?? b?.verificationMaterial?.x509CertificateChain?.certificates?.[0]?.rawBytes;
@@ -149,7 +157,6 @@ export function checkAttestation(bundle: unknown, archive: Uint8Array, name: str
   if (!verify("sha256", pae(envelope.payloadType, body), cert.publicKey, Buffer.from(envelope.signatures[0].sig, "base64"))) {
     throw new PublishAuthError("The attestation signature does not verify");
   }
-  const repo = trustedRepository();
   const identity = `URI:https://github.com/${repo}/${PUBLISH_WORKFLOW}@refs/tags/${releaseTag(name, version)}`;
   if (!(cert.subjectAltName ?? "").split(", ").includes(identity)) {
     throw new PublishAuthError("The attestation was not made by the publish workflow for this tag");
