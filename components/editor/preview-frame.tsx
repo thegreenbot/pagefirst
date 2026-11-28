@@ -14,6 +14,18 @@ type FrameRefs = {
   ready: { current: boolean };
 };
 
+/**
+ * The nonce the browser enforces is the one in the policy of the document's
+ * first load, and Next puts it on its own scripts. After a client-side
+ * navigation the server renders this page with a fresh per-request nonce that
+ * the browser never saw, so the prop can be stale. Read the live one back from
+ * a script element (the attribute is hidden, the property is not).
+ */
+function enforcedNonce(fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  return document.querySelector<HTMLScriptElement>("script[nonce]")?.nonce || fallback;
+}
+
 function post(refs: FrameRefs, message: ToPreview) {
   if (!refs.ready.current) return;
   refs.frame.current?.contentWindow?.postMessage(message, "*");
@@ -39,7 +51,7 @@ type Props = {
  */
 export function PreviewFrame({ html, tokensCss, nonce, selectedId, focusToken, onSelect, onText }: Props) {
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const [initialDoc] = useState(() => previewDocument(html, nonce));
+  const [initialDoc] = useState(() => previewDocument(html, enforcedNonce(nonce)));
   // The HTML the frame shows now. Posting the same HTML again would swap the
   // body under the author's pointer for nothing.
   const shown = useRef(deferMedia(html));
