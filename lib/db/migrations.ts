@@ -626,7 +626,8 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE audit_events
         ADD COLUMN import_id text,
         ADD COLUMN doc_author text,
-        ADD COLUMN change_count integer;
+        ADD COLUMN change_count integer,
+        ADD COLUMN job_id text;
     `,
   },
 ];
