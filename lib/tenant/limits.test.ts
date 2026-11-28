@@ -10,11 +10,11 @@ function setEnv(k: string, v: string | undefined): void {
   else process.env[k] = v;
 }
 
-function withEnv<T>(vars: Record<string, string | undefined>, run: () => T): T {
+async function withEnv<T>(vars: Record<string, string | undefined>, run: () => T | Promise<T>): Promise<T> {
   const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
   for (const [k, v] of Object.entries(vars)) setEnv(k, v);
   try {
-    return run();
+    return await run();
   } finally {
     for (const [k, v] of Object.entries(saved)) setEnv(k, v);
   }
@@ -28,10 +28,10 @@ test("default limits per plan, and enterprise is unlimited", () => {
   assert.equal(limitFor("enterprise", "livePages"), null);
 });
 
-test("an environment variable overrides a limit", () => {
-  withEnv({ PAGEFIRST_LIMIT_FREE_LIVE_PAGES: "3" }, () => assert.equal(limitFor("free", "livePages"), 3));
-  withEnv({ PAGEFIRST_LIMIT_PRO_LIVE_PAGES: "unlimited" }, () => assert.equal(limitFor("pro", "livePages"), null));
-  withEnv({ PAGEFIRST_LIMIT_FREE_LIVE_PAGES: "lots" }, () => assert.equal(limitFor("free", "livePages"), 10));
+test("an environment variable overrides a limit", async () => {
+  await withEnv({ PAGEFIRST_LIMIT_FREE_LIVE_PAGES: "3" }, () => assert.equal(limitFor("free", "livePages"), 3));
+  await withEnv({ PAGEFIRST_LIMIT_PRO_LIVE_PAGES: "unlimited" }, () => assert.equal(limitFor("pro", "livePages"), null));
+  await withEnv({ PAGEFIRST_LIMIT_FREE_LIVE_PAGES: "lots" }, () => assert.equal(limitFor("free", "livePages"), 10));
 });
 
 const url = testDatabaseUrl();
