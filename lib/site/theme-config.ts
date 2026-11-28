@@ -386,11 +386,11 @@ export type RenderContext = {
  * server session (sample mode, local dev), pages render with the default theme
  * and the Doc's own section styles, as before #56.
  */
-export async function renderContextFor(sub: string | null, fileId: string): Promise<RenderContext> {
+export async function renderContextFor(sub: string | null, fileId: string, selectedSite?: string): Promise<RenderContext> {
   if (!sub || !databaseConfigured()) {
     return { theme: bundledTheme(DEFAULT_THEME_NAME)!, config: null, presentation: null };
   }
-  const siteId = await siteForOwner(sub);
+  const siteId = selectedSite ?? (await siteForOwner(sub));
   const stored = await readSiteTheme(siteId);
   // Stored custom CSS stops rendering when the plan no longer includes it (downgrade); it is kept, not deleted.
   const noCss = stored.customCss && !(await siteAllows(siteId, "customCss"));

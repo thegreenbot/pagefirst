@@ -2,22 +2,21 @@
 # Vercel "Ignored Build Step": exit 0 skips the build, exit 1 builds.
 #
 # The Hobby plan allows 100 deployments per 24 hours, and CI already builds and
-# tests every PR. So a preview is built only when the last commit changed
-# something a person would look at in a browser: pages, components, themes,
-# styles, static files or the framework and dependency config. Production
-# always builds. If the diff can't be computed (shallow clone), build.
+# tests every PR. So:
+#   - production (main) always builds;
+#   - pushes to develop, feature/* and any branch without an open PR never build;
+#   - a PR preview builds only when the commit message contains "[preview]".
+# The script cannot read PR labels (that needs a GitHub token), so the opt-in is
+# the commit message. A preview can also be started from the Vercel dashboard.
 if [ "$VERCEL_ENV" = "production" ]; then
   exit 1
 fi
-# Dependency bot branches get CI, not a preview.
-case "$VERCEL_GIT_COMMIT_REF" in
-  dependabot/*) echo "Dependabot branch; skipping the preview build."; exit 0 ;;
+if [ -z "$VERCEL_GIT_PULL_REQUEST_ID" ]; then
+  echo "No open pull request for this branch; skipping the build."
+  exit 0
+fi
+case "$VERCEL_GIT_COMMIT_MESSAGE" in
+  *"[preview]"*) exit 1 ;;
 esac
-git diff --quiet HEAD^ HEAD -- \
-  'app/**/*.tsx' 'app/**/*.css' 'app/*.tsx' 'app/*.css' \
-  'components' 'themes' 'public' \
-  'next.config.*' 'package-lock.json' 'vercel.json' 'tsconfig.json' 2>/dev/null
-case $? in
-  0) echo "No UI, theme or dependency change in this commit; skipping the preview build."; exit 0 ;;
-  *) exit 1 ;;
-esac
+echo "Add [preview] to the commit message to build a preview; skipping."
+exit 0

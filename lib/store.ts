@@ -12,11 +12,13 @@ import { getAccessToken, getSessionSub } from "@/lib/session";
  */
 export async function sessionContext(request?: Request): Promise<ServiceContext> {
   const googleToken = await getAccessToken();
-  return {
+  const ctx: ServiceContext = {
     actor: { sub: googleToken ? await getSessionSub() : null, client: "ui" },
     googleToken,
     requestId: request ? requestIdFrom(request) : randomUUID(),
   };
+  if (request) await service.applySiteHeader(ctx, request);
+  return ctx;
 }
 
 export async function isSampleMode(): Promise<boolean> {
