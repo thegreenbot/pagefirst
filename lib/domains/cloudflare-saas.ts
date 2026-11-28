@@ -103,6 +103,21 @@ export function createCloudflareSaasProvider(config: CloudflareSaasConfig, fetch
       return mapCustomHostname(hostname, config.cnameTarget, got.result);
     },
 
+    async list() {
+      const found: { ref: string; hostname: string }[] = [];
+      for (let page = 1; page <= 40; page += 1) {
+        const response = await fetchImpl(`${base}?per_page=50&page=${page}`, {
+          headers: { Authorization: `Bearer ${config.token}` },
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!response.ok) throw new ProviderError(`Domain provider answered ${response.status}`, response.status);
+        const payload = (await response.json().catch(() => null)) as { result?: { id?: string; hostname?: string }[]; result_info?: { total_pages?: number } } | null;
+        for (const item of payload?.result ?? []) if (item.id && item.hostname) found.push({ ref: item.id, hostname: item.hostname.toLowerCase() });
+        if (page >= (payload?.result_info?.total_pages ?? 1)) break;
+      }
+      return found;
+    },
+
     async remove(ref): Promise<void> {
       const gone = await call("DELETE", `${base}/${encodeURIComponent(ref)}`);
       if (gone.status !== 200 && gone.status !== 404) throw new ProviderError(`Domain provider answered ${gone.status}`, gone.status);

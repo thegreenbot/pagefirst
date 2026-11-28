@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db/client";
-import { deleteCanonicalHost, deleteHost, putCanonicalHost, putHost } from "@/lib/publish/r2";
+import { deleteCanonicalHost, deleteHost, listHostRecords, putCanonicalHost, putHost } from "@/lib/publish/r2";
 import { publishDomain } from "@/lib/publish/sites";
 import { planForSite, requireFeature, siteAllows } from "@/lib/tenant/orgs";
 import { featureAllowed } from "@/lib/tenant/plans";
 import { isApex, normalizeHostname, withinLimits, type DomainLimits } from "./hostname";
 import { configuredDomainProvider } from "./index";
 import type { DnsRecord, DomainProvider, ProviderStatus } from "./provider";
-import { countActiveDomains, countDomains, createDomain, DomainError, getDomain, getGraceUntil, setGraceUntil, listDomainsByStatus, listDomains, removeDomain, setDomainStatus, type SiteDomain } from "./store";
+import { blockedBy, blockHostname, countActiveDomains, domainsForSite, heldHostnames, heldProviderRefs, moveDomain, countDomains, createDomain, DomainError, getDomain, getGraceUntil, setGraceUntil, listDomainsByStatus, listDomains, removeDomain, setDomainStatus, type SiteDomain } from "./store";
 
 /**
  * Adds, verifies, activates and removes a site's custom domains (#186).
@@ -33,6 +33,8 @@ export type HostStore = {
   remove(hostname: string): Promise<void>;
   /** The hostname a site's other addresses redirect to, or null to clear it. */
   canonical(siteId: string, hostname: string | null): Promise<void>;
+  /** Hostnames that have a record in the bucket, for the sweeper. */
+  list(): Promise<string[]>;
 };
 
 export type DomainDeps = {
@@ -54,6 +56,7 @@ export function defaultDeps(): DomainDeps {
     hosts: {
       put: putHost,
       remove: deleteHost,
+      list: listHostRecords,
       canonical: (siteId, hostname) => (hostname ? putCanonicalHost(siteId, hostname) : deleteCanonicalHost(siteId)),
     },
     limits: DEFAULT_LIMITS,
@@ -136,6 +139,10 @@ async function deactivate(actor: Actor, domain: SiteDomain, status: "pending" | 
 }
 
 async function apply(actor: Actor, domain: SiteDomain, result: ProviderStatus, deps: DomainDeps): Promise<DomainView> {
+  // An operator-blocked name never serves, whatever the provider says.
+  if (await blockedBy(domain.hostname)) {
+    return { domain: await deactivate(actor, domain, "error", "This domain can't be used.", deps), records: [], message: "This domain can't be used." };
+  }
   // A domain that isn't serving yet doesn't start on a plan without custom domains.
   if (result.state === "active" && domain.status !== "active" && !(await siteAllows(domain.siteId, "customDomains"))) {
     return { domain: await deactivate(actor, domain, "error", "Your plan doesn't include custom domains. Upgrade to serve this domain.", deps), records: [], message: null };
@@ -153,6 +160,7 @@ export async function addSiteDomain(actor: Actor, input: string, deps: DomainDep
   await requireFeature(actor.siteId, "customDomains");
   const checked = normalizeHostname(input, { publishDomain: publishDomain(), reserved: deps.reserved });
   if (!checked.ok) throw new DomainServiceError("invalid", checked.reason);
+  if (await blockedBy(checked.hostname)) throw new DomainServiceError("invalid", "This domain can't be used.");
   if (isApex(checked.hostname)) {
     throw new DomainServiceError("invalid", `Bare domains aren't supported yet. Use a subdomain such as www.${checked.hostname}.`);
   }
@@ -279,4 +287,113 @@ export async function reverifyDomains(deps: DomainDeps = defaultDeps(), limit = 
 /** How many custom hostnames are active, for watching what Cloudflare for SaaS costs. */
 export function activeDomainCount(): Promise<number> {
   return countActiveDomains();
+}
+
+/**
+ * Abuse takedown (#190): blocks the hostname (and everything under it), stops
+ * serving it at once, and releases the provider record. The owner sees "This
+ * domain can't be used." Returns how many domain rows were disabled.
+ */
+export async function disableHostname(hostname: string, reason: string, deps: DomainDeps = defaultDeps()): Promise<number> {
+  const checked = normalizeHostname(hostname);
+  if (!checked.ok) throw new DomainServiceError("invalid", checked.reason);
+  await blockHostname(checked.hostname, reason.slice(0, 500));
+  const rows = await query<{ id: string }>("SELECT id FROM site_domains WHERE status <> 'removed' AND (hostname = $1 OR hostname LIKE '%.' || $1)", [checked.hostname]);
+  let disabled = 0;
+  for (const { id } of rows) {
+    const [row] = await query<{ site_id: string; owner_sub: string }>("SELECT d.site_id, s.owner_sub FROM site_domains d JOIN sites s ON s.id = d.site_id WHERE d.id = $1", [id]);
+    const domain = row ? await getDomain(row.owner_sub, row.site_id, id) : null;
+    if (!domain) continue;
+    await deactivate({ ownerSub: row!.owner_sub, siteId: row!.site_id }, domain, "error", "This domain can't be used.", deps);
+    // Serving has stopped; a provider failure here is left for the sweeper.
+    if (deps.provider && domain.providerRef) await deps.provider.remove(domain.providerRef).catch(() => undefined);
+    disabled += 1;
+  }
+  return disabled;
+}
+
+/**
+ * Removes every domain of a site before the site's files go (site deletion,
+ * organization closing). Serving stops first; if the provider can't remove a
+ * hostname this throws so the caller can leave everything intact and retry.
+ */
+export async function removeAllSiteDomains(siteId: string, deps: DomainDeps = defaultDeps()): Promise<number> {
+  const domains = await domainsForSite(siteId);
+  if (domains.length === 0) return 0;
+  await deps.hosts.canonical(siteId, null);
+  for (const domain of domains) {
+    await deps.hosts.remove(domain.hostname);
+    await forgetHostFile(siteId, domain.hostname);
+    if (deps.provider && domain.providerRef) await deps.provider.remove(domain.providerRef);
+    await setDomainStatus(domain.id, "removed");
+  }
+  return domains.length;
+}
+
+/**
+ * Moves a domain to another site of the same owner. The hostname stays held
+ * the whole time, so nobody else can claim it, but it stops serving until the
+ * provider confirms it for the new site.
+ */
+export async function transferSiteDomain(actor: Actor, id: string, toSiteId: string, deps: DomainDeps = defaultDeps()): Promise<DomainView> {
+  if (toSiteId === actor.siteId) throw new DomainServiceError("invalid", "That domain is already on this site.");
+  let domain: SiteDomain | null;
+  try {
+    domain = await getDomain(actor.ownerSub, actor.siteId, id);
+  } catch (error) {
+    if (error instanceof DomainError) throw new DomainServiceError(error.code, error.message);
+    throw error;
+  }
+  if (!domain) throw new DomainServiceError("not_found", "Domain not found");
+  const target: Actor = { ownerSub: actor.ownerSub, siteId: toSiteId };
+  try {
+    await listDomains(target.ownerSub, target.siteId); // throws unless the caller owns the target site
+  } catch (error) {
+    if (error instanceof DomainError) throw new DomainServiceError("not_found", "Site not found");
+    throw error;
+  }
+  await requireFeature(toSiteId, "customDomains");
+  const limit = withinLimits(await countDomains(target.ownerSub, toSiteId), deps.limits);
+  if (!limit.ok) throw new DomainServiceError("limit", limit.reason);
+  // Stop serving from the old site first, then move the row in one statement.
+  await syncCanonical(actor.siteId, domain.hostname, deps);
+  await deps.hosts.remove(domain.hostname);
+  await forgetHostFile(actor.siteId, domain.hostname);
+  const moved = await moveDomain(domain.id, toSiteId);
+  if (!moved) throw new DomainServiceError("not_found", "Domain not found");
+  await audit(actor, "site.domain.removed", domain.hostname);
+  return checkSiteDomain(target, moved.id, deps);
+}
+
+/**
+ * Removes what nothing holds any more: host records in the bucket with no
+ * domain row, and provider hostnames with no domain row. Meant for the daily
+ * job; a failure on one entry doesn't stop the rest.
+ */
+export async function sweepOrphans(deps: DomainDeps = defaultDeps()): Promise<{ hosts: number; provider: number }> {
+  const held = await heldHostnames();
+  let hosts = 0;
+  for (const hostname of await deps.hosts.list()) {
+    if (held.has(hostname)) continue;
+    try {
+      await deps.hosts.remove(hostname);
+      hosts += 1;
+    } catch {
+      // Left for the next run.
+    }
+  }
+  let provider = 0;
+  if (deps.provider?.list) {
+    const refs = await heldProviderRefs();
+    for (const entry of await deps.provider.list()) {
+      if (refs.has(entry.ref) || held.has(entry.hostname)) continue;
+      try {
+        await deps.provider.remove(entry.ref);
+        provider += 1;
+      } catch {
+        // Left for the next run.
+      }
+    }
+  }
+  return { hosts, provider };
 }

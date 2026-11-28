@@ -122,3 +122,21 @@ export async function deleteCanonicalHost(siteId: string): Promise<void> {
   if (!SITE_ID.test(siteId)) throw new Error("Invalid site id");
   await send("DELETE", `canonical/${siteId}`);
 }
+
+/** Hostnames that have a record in the bucket, for the orphan sweeper (#190). */
+export async function listHostRecords(): Promise<string[]> {
+  const config = r2Config();
+  if (!config) throw new Error("Publishing storage is not configured");
+  const found: string[] = [];
+  let cursor = "";
+  for (let page = 0; page < 100; page += 1) {
+    const url = `${API}/accounts/${encodeURIComponent(config.accountId)}/r2/buckets/${encodeURIComponent(config.bucket)}/objects?prefix=hosts%2F&per_page=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${config.token}` }, signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) throw new Error(`Publishing storage answered ${response.status}`);
+    const payload = (await response.json().catch(() => null)) as { result?: { key?: string }[]; result_info?: { cursor?: string; is_truncated?: boolean } } | null;
+    for (const object of payload?.result ?? []) if (object.key?.startsWith("hosts/")) found.push(object.key.slice("hosts/".length));
+    cursor = payload?.result_info?.is_truncated ? (payload.result_info.cursor ?? "") : "";
+    if (!cursor) break;
+  }
+  return found;
+}

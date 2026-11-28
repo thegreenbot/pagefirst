@@ -172,3 +172,47 @@ export async function countActiveDomains(): Promise<number> {
   const rows = await query<{ n: string }>("SELECT count(*)::text AS n FROM site_domains WHERE status = 'active'");
   return Number(rows[0]?.n ?? 0);
 }
+
+/** The blocked name that covers this hostname (the hostname itself or a parent domain), or null. */
+export async function blockedBy(hostname: string): Promise<string | null> {
+  const rows = await query<{ hostname: string }>(
+    "SELECT hostname FROM blocked_domains WHERE $1 = hostname OR $1 LIKE '%.' || hostname ORDER BY length(hostname) DESC LIMIT 1",
+    [hostname],
+  );
+  return rows[0]?.hostname ?? null;
+}
+
+export async function blockHostname(hostname: string, reason: string): Promise<void> {
+  await query("INSERT INTO blocked_domains (hostname, reason) VALUES ($1, $2) ON CONFLICT (hostname) DO UPDATE SET reason = EXCLUDED.reason", [hostname, reason]);
+}
+
+export async function unblockHostname(hostname: string): Promise<void> {
+  await query("DELETE FROM blocked_domains WHERE hostname = $1", [hostname]);
+}
+
+/** Every domain row that isn't removed, with its hostname, for the sweeper. */
+export async function heldHostnames(): Promise<Set<string>> {
+  const rows = await query<{ hostname: string }>("SELECT hostname FROM site_domains WHERE status <> 'removed'");
+  return new Set(rows.map((row) => row.hostname));
+}
+
+/** Provider refs of domains that aren't removed. */
+export async function heldProviderRefs(): Promise<Set<string>> {
+  const rows = await query<{ provider_ref: string }>("SELECT provider_ref FROM site_domains WHERE status <> 'removed' AND provider_ref IS NOT NULL");
+  return new Set(rows.map((row) => row.provider_ref));
+}
+
+export async function domainsForSite(siteId: string): Promise<SiteDomain[]> {
+  const rows = await query<Row>(`SELECT ${COLUMNS} FROM site_domains WHERE site_id = $1 AND status <> 'removed'`, [siteId]);
+  return rows.map(toDomain);
+}
+
+/** Moves a held domain to another site in one statement, so the hostname is never free. */
+export async function moveDomain(id: string, toSiteId: string): Promise<SiteDomain | null> {
+  const rows = await query<Row>(
+    `UPDATE site_domains SET site_id = $2, status = 'verifying', last_error = NULL, grace_until = NULL
+     WHERE id = $1 AND status <> 'removed' RETURNING ${COLUMNS}`,
+    [id, toSiteId],
+  );
+  return rows[0] ? toDomain(rows[0]) : null;
+}

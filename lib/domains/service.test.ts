@@ -4,9 +4,9 @@ import { closeDatabase, query } from "@/lib/db/client";
 import { resetTestDatabase, testDatabaseUrl } from "@/lib/db/test-db";
 import { siteForOwner } from "@/lib/site/theme-config";
 import { createFakeProvider } from "./fake-provider";
-import { addSiteDomain, checkSiteDomain, DEFAULT_LIMITS, DomainServiceError, type Actor, type DomainDeps, listSiteDomains, removeSiteDomain, reverifyDomains } from "./service";
+import { addSiteDomain, checkSiteDomain, DEFAULT_LIMITS, disableHostname, removeAllSiteDomains, sweepOrphans, transferSiteDomain, DomainServiceError, type Actor, type DomainDeps, listSiteDomains, removeSiteDomain, reverifyDomains } from "./service";
 import { PlanError } from "@/lib/tenant/plans";
-import { findHeldDomain } from "./store";
+import { findHeldDomain, unblockHostname } from "./store";
 
 const url = testDatabaseUrl();
 const ACTIVE = { state: "active" as const, message: null, records: [] };
@@ -20,6 +20,7 @@ function setup() {
     hosts: {
       put: async (hostname, siteId) => void hosts.set(hostname, siteId),
       remove: async (hostname) => void hosts.delete(hostname),
+      list: async () => [...hosts.keys()],
       canonical: async (siteId, hostname) => void (hostname ? canonical.set(siteId, hostname) : canonical.delete(siteId)),
     },
     limits: { perSite: 2, perAccount: 3 },
@@ -180,6 +181,83 @@ describe("custom domain service", { skip: url ? false : "set TEST_DATABASE_URL t
     provider.remove = realRemove;
     await removeSiteDomain(bob, view.domain.id, deps);
     assert.equal(await findHeldDomain("blog.bob-site.com"), null);
+  });
+
+async function fresh(sub: string): Promise<Actor> {
+    return { ownerSub: sub, siteId: await siteForOwner(sub) };
+  }
+
+  test("an operator can disable a hostname: it stops serving, can't be added again, and the provider record goes", async () => {
+    const { provider, hosts, deps } = setup();
+    const erin = await fresh("erin-sub");
+    const view = await addSiteDomain(erin, "promo.evil-site.com", deps);
+    provider.set(refOf(provider, "promo.evil-site.com"), ACTIVE);
+    await checkSiteDomain(erin, view.domain.id, deps);
+    assert.equal(hosts.has("promo.evil-site.com"), true);
+
+    assert.equal(await disableHostname("evil-site.com", "phishing report", deps), 1);
+    assert.equal(hosts.has("promo.evil-site.com"), false);
+    assert.equal(provider.removed.length, 1);
+    assert.equal((await findHeldDomain("promo.evil-site.com"))?.status, "error");
+    await assert.rejects(addSiteDomain(await fresh("erin2-sub"), "www.evil-site.com", deps), (e) => e instanceof DomainServiceError && e.code === "invalid");
+    // Even if the provider still says active, a blocked hostname doesn't come back.
+    const again = await checkSiteDomain(erin, view.domain.id, deps);
+    assert.equal(again.domain.status, "error");
+    assert.equal(hosts.has("promo.evil-site.com"), false);
+    await removeSiteDomain(erin, view.domain.id, deps);
+    await unblockHostname("evil-site.com");
+  });
+
+  test("deleting a site removes its domains first: serving stops and the provider hostnames go", async () => {
+    const { provider, hosts, canonical, deps } = setup();
+    const frank = await fresh("frank-sub");
+    const view = await addSiteDomain(frank, "gone.bob-site.com", deps);
+    provider.set(refOf(provider, "gone.bob-site.com"), ACTIVE);
+    await checkSiteDomain(frank, view.domain.id, deps);
+    assert.equal(canonical.get(frank.siteId), "gone.bob-site.com");
+
+    assert.equal(await removeAllSiteDomains(frank.siteId, deps), 1);
+    assert.equal(hosts.has("gone.bob-site.com"), false);
+    assert.equal(canonical.has(frank.siteId), false);
+    assert.equal(provider.removed.length, 1);
+    assert.equal(await findHeldDomain("gone.bob-site.com"), null);
+  });
+
+  test("a domain moves between the owner's sites without ever being free, and serves again once verified", async () => {
+    const { provider, hosts, deps } = setup();
+    const gina = await fresh("gina-sub");
+    await query("INSERT INTO sites (id, owner_sub, org_id) SELECT 'gina-second', owner_sub, org_id FROM sites WHERE id = $1", [gina.siteId]);
+    const view = await addSiteDomain(gina, "move.alice-site.com", deps);
+    provider.set(refOf(provider, "move.alice-site.com"), ACTIVE);
+    await checkSiteDomain(gina, view.domain.id, deps);
+    assert.equal(hosts.get("move.alice-site.com"), gina.siteId);
+
+    provider.set(refOf(provider, "move.alice-site.com"), { state: "verifying", message: null });
+    const moved = await transferSiteDomain(gina, view.domain.id, "gina-second", deps);
+    assert.equal(moved.domain.siteId, "gina-second");
+    assert.equal(hosts.has("move.alice-site.com"), false, "not serving until it is verified for the new site");
+    assert.equal((await findHeldDomain("move.alice-site.com"))?.siteId, "gina-second", "still held, so nobody else can claim it");
+    await assert.rejects(addSiteDomain(await fresh("gina2-sub"), "move.alice-site.com", deps), (e) => e instanceof DomainServiceError && e.code === "taken");
+
+    provider.set(refOf(provider, "move.alice-site.com"), ACTIVE);
+    await checkSiteDomain({ ownerSub: gina.ownerSub, siteId: "gina-second" }, view.domain.id, deps);
+    assert.equal(hosts.get("move.alice-site.com"), "gina-second");
+    await assert.rejects(transferSiteDomain(await fresh("gina2-sub"), view.domain.id, "gina-second", deps), DomainServiceError, "only its owner can move it");
+  });
+
+  test("the sweeper removes host records and provider hostnames that nothing holds", async () => {
+    const { provider, hosts, deps } = setup();
+    const hank = await fresh("hank-sub");
+    const view = await addSiteDomain(hank, "keep.alice-site.com", deps);
+    provider.set(refOf(provider, "keep.alice-site.com"), ACTIVE);
+    await checkSiteDomain(hank, view.domain.id, deps);
+    hosts.set("orphan.alice-site.com", hank.siteId);
+    await provider.add("orphan.alice-site.com", "token");
+
+    assert.deepEqual(await sweepOrphans(deps), { hosts: 1, provider: 1 });
+    assert.equal(hosts.has("orphan.alice-site.com"), false);
+    assert.equal(hosts.has("keep.alice-site.com"), true, "a held domain is left alone");
+    assert.equal(provider.states.size, 1);
   });
 
   {
