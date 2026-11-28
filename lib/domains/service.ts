@@ -5,7 +5,7 @@ import { deleteCanonicalHost, deleteHost, listHostRecords, putCanonicalHost, put
 import { publishDomain } from "@/lib/publish/sites";
 import { planForSite, requireFeature, siteAllows } from "@/lib/tenant/orgs";
 import { featureAllowed } from "@/lib/tenant/plans";
-import { isApex, normalizeHostname, withinLimits, type DomainLimits } from "./hostname";
+import { normalizeHostname, withinLimits, type DomainLimits } from "./hostname";
 import { configuredDomainProvider } from "./index";
 import type { DnsRecord, DomainProvider, ProviderStatus } from "./provider";
 import { blockedBy, blockHostname, countActiveDomains, domainsForSite, heldHostnames, heldProviderRefs, moveDomain, countDomains, createDomain, DomainError, getDomain, getGraceUntil, setGraceUntil, listDomainsByStatus, listDomains, removeDomain, setDomainStatus, type SiteDomain } from "./store";
@@ -161,9 +161,6 @@ export async function addSiteDomain(actor: Actor, input: string, deps: DomainDep
   const checked = normalizeHostname(input, { publishDomain: publishDomain(), reserved: deps.reserved });
   if (!checked.ok) throw new DomainServiceError("invalid", checked.reason);
   if (await blockedBy(checked.hostname)) throw new DomainServiceError("invalid", "This domain can't be used.");
-  if (isApex(checked.hostname)) {
-    throw new DomainServiceError("invalid", `Bare domains aren't supported yet. Use a subdomain such as www.${checked.hostname}.`);
-  }
   try {
     const limit = withinLimits(await countDomains(actor.ownerSub, actor.siteId), deps.limits);
     if (!limit.ok) throw new DomainServiceError("limit", limit.reason);

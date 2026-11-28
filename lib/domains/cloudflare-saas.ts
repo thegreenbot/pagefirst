@@ -1,4 +1,5 @@
-import { type DnsRecord, type DomainProvider, type ProviderAdd, ProviderError, type ProviderStatus } from "./provider";
+import { isApex } from "./hostname";
+import { APEX_NOTE, type DnsRecord, type DomainProvider, type ProviderAdd, ProviderError, type ProviderStatus } from "./provider";
 
 /**
  * Cloudflare for SaaS custom hostnames on the publish zone (#185). The owner
@@ -39,7 +40,7 @@ type CustomHostname = {
 };
 
 export function mapCustomHostname(hostname: string, cnameTarget: string, result: CustomHostname): ProviderStatus {
-  const records: DnsRecord[] = [{ type: "CNAME", name: hostname, value: cnameTarget, purpose: "route" }];
+  const records: DnsRecord[] = [{ type: "CNAME", name: hostname, value: cnameTarget, purpose: "route", ...(isApex(hostname) ? { note: APEX_NOTE } : {}) }];
   const ownership = result.ownership_verification;
   if (ownership?.type === "txt" && ownership.name && ownership.value) {
     records.push({ type: "TXT", name: ownership.name, value: ownership.value, purpose: "ownership" });

@@ -82,7 +82,17 @@ describe("custom domain service", { skip: url ? false : "set TEST_DATABASE_URL t
     assert.equal(hosts.size, 0);
   });
 
-  test("rejects bad input: publish domain, apex, junk, and missing provider", async () => {
+  test("a bare domain can be added: its route record explains CNAME flattening, and it serves once active", async () => {
+    const { provider, hosts, deps } = setup();
+    const hank2 = { ownerSub: "ivy-sub", siteId: await siteForOwner("ivy-sub") };
+    const view = await addSiteDomain(hank2, "ivy-site.com", deps);
+    assert.equal(view.domain.hostname, "ivy-site.com");
+    provider.set(refOf(provider, "ivy-site.com"), ACTIVE);
+    await checkSiteDomain(hank2, view.domain.id, deps);
+    assert.equal(hosts.get("ivy-site.com"), hank2.siteId);
+  });
+
+  test("rejects bad input: publish domain, junk, and missing provider", async () => {
     const { deps } = setup();
     process.env.PUBLISH_DOMAIN = "sites.pubdom.com";
     try {
@@ -90,7 +100,6 @@ describe("custom domain service", { skip: url ? false : "set TEST_DATABASE_URL t
     } finally {
       delete process.env.PUBLISH_DOMAIN;
     }
-    await assert.rejects(addSiteDomain(alice, "alice-site.com", deps), (e) => e instanceof DomainServiceError && e.code === "invalid" && e.message === "Bare domains aren't supported yet. Use a subdomain such as www.alice-site.com.");
     await assert.rejects(addSiteDomain(alice, "https://x.alice-site.com/a", deps), (e) => e instanceof DomainServiceError && e.code === "invalid");
     await assert.rejects(addSiteDomain(alice, "x.alice-site.com", { ...deps, provider: null }), (e) => e instanceof DomainServiceError && e.code === "unavailable");
   });
