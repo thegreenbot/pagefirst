@@ -53,6 +53,9 @@ export default async function Home({
             <Link href="/" className="shrink-0 text-ink">
               Pages
             </Link>
+            <Link href="/orgs" className="shrink-0 hover:text-ink">
+              Organizations
+            </Link>
             <Link href="/plan" className="shrink-0 hover:text-ink">
               Plan
             </Link>
