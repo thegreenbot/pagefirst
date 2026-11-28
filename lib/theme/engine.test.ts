@@ -325,4 +325,34 @@ describe("headers for the published page (#63)", () => {
       assert.throws(() => parseManifest({ ...base, permissions }), /permissions/, JSON.stringify(permissions));
     }
   });
+
+  test("custom CSS renders in the last layer, after the blocks", () => {
+    const { html } = renderPage(aboutFixture(), getDefaultTheme(), { customCss: ".hero { color: red; }", optimizer: nodeOptimizer });
+    assert.match(html, /@layer customer\{\.hero\{color:red;?\}\}/);
+    assert.ok(html.indexOf("@layer blocks") < html.indexOf("@layer customer"));
+  });
+
+  test("no custom CSS means no customer layer", () => {
+    const { html } = renderPage(aboutFixture(), getDefaultTheme(), { optimizer: nodeOptimizer });
+    assert.ok(!html.includes("@layer customer"));
+  });
+
+  test("custom CSS that blows the critical budget is named in a warning", () => {
+    const big = Array.from({ length: 4000 }, (_, i) => `.c${i}{margin:${i}px ${i * 3}px}`).join("");
+    const { warnings } = renderPage(aboutFixture(), getDefaultTheme(), { customCss: big, optimizer: nodeOptimizer });
+    assert.match(warnings.join("\n"), /Custom CSS/);
+  });
+
+  test("a template override replaces the theme's partial, and a stale path is skipped with a warning", () => {
+    const theme = loadThemeFromDir("themes/editorial");
+    const partial = "partials/colophon";
+    const site = { name: "Acme" };
+    const plain = renderPage(aboutFixture(), theme, { site, optimizer: nodeOptimizer });
+    const over = renderPage(aboutFixture(), theme, { site, templateOverrides: { [partial]: "<!--overridden-->", "partials/nope": "x" }, optimizer: nodeOptimizer });
+    assert.ok(over.html.includes("<!--overridden-->"));
+    assert.ok(!plain.html.includes("<!--overridden-->"));
+    assert.match(over.warnings.join("\n"), /partials\/nope.*skipped/);
+    // The cached engine for the theme is untouched by an override.
+    assert.ok(!renderPage(aboutFixture(), theme, { site, optimizer: nodeOptimizer }).html.includes("<!--overridden-->"));
+  });
 });

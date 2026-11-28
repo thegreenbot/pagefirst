@@ -1,3 +1,9 @@
+# Contributing
+
+Pagefirst is licensed under the [Apache License 2.0](LICENSE). Before your first pull request is merged, agree to the [Contributor License Agreement](CLA.md). A bot comments on your first pull request; sign by replying with this exact sentence:
+
+> I have read the Pagefirst Contributor License Agreement and agree to it.
+
 # Git flow
 
 `develop` is the integration branch. `main` is the release line. Pull requests are how commits move. `npm install` points this clone at `.githooks`, which refuses pushes that skip the flow.
@@ -45,6 +51,16 @@ Terraform also creates the **page-first PR CI** automation, which runs `npm run 
 
 `.github/workflows/ci.yml` runs the same `npm run ci` command if a CI app such as Depot or Buildkite is connected to the Origin repo.
 
+## Vercel deploys
+
+Vercel Hobby allows 100 deployments a day, so builds are opt-in (`scripts/vercel-ignore.sh`):
+
+- `main` always builds the production site.
+- Pushes to `develop`, `feature/*` and any branch without an open PR never build.
+- A PR preview builds only when the latest commit message contains `[preview]`, for example `git commit --allow-empty -m "Preview [preview]"` after the PR exists. The tag must be on the newest commit; a later commit without it is skipped.
+- CI (lint, typecheck, test, build, integration) runs on every PR regardless.
+- Merge to `main` as batched `release/vX.Y.Z` PRs, not one merge per feature.
+
 ## Secrets
 
 Secrets live only in the deployment environment, never in the repository. That covers `GOOGLE_CLIENT_SECRET`, `CLOUDFLARE_API_TOKEN`, the token-encryption key, and `CURSOR_TOKEN` for `infra/git-flow`, which is only exported in the shell that runs Terraform.
@@ -52,3 +68,5 @@ Secrets live only in the deployment environment, never in the repository. That c
 - Do not commit `.env` files. `.gitignore` excludes `.env*`, `*.pem` and Terraform state (`*.tfstate`, `.terraform/`).
 - The **Secret scan** workflow runs gitleaks on every pull request and push, and over the full history weekly. GitHub secret scanning with push protection blocks known token formats at push time.
 - If a secret reaches a commit, treat it as leaked even if the commit is removed: rotate it with [runbooks/secret-rotation.md](runbooks/secret-rotation.md), then follow [runbooks/incident-response.md](runbooks/incident-response.md).
+
+Your signature is recorded against your GitHub account on the `cla-signatures` branch of this repository, so you sign once. The maintainer and automation accounts (for example Dependabot) are exempt. If the check is stale, comment `recheck`.

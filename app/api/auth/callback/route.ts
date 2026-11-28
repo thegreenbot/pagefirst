@@ -4,7 +4,8 @@ import { oauthOrigin } from "@/lib/google/origin";
 import { exchangeCode } from "@/lib/google/oauth";
 import { fetchGoogleIdentity } from "@/lib/google/userinfo";
 import { auditRequest } from "@/lib/audit-request";
-import { clearPkce, getPkce, serverSessionsEnabled, setAccessToken, setSessionCookie } from "@/lib/session";
+import { claimPendingMemberships } from "@/lib/tenant/orgs";
+import { clearPkce, getPkce, serverSessionsEnabled, setAccessToken, setSessionCookie, takeReturnTo } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
   const origin = oauthOrigin(request);
@@ -24,7 +25,8 @@ export async function GET(request: NextRequest) {
       // Tokens stay on the server; the browser only gets an opaque session id.
       const identity = await fetchGoogleIdentity(grant.accessToken);
       if (!identity) return fail();
-      await saveGrant(identity.sub, identity.email, grant);
+      await saveGrant(identity.sub, identity.email, grant, identity.hd);
+      if (identity.email) await claimPendingMemberships(identity.sub, identity.email, identity.hd).catch(() => undefined);
       const sessionId = await createSession(identity.sub, request.headers.get("user-agent"));
       await setSessionCookie(sessionId);
       await auditRequest(request, { event: "auth.sign_in", outcome: "ok", actorSub: identity.sub, status: 302 });
@@ -33,7 +35,7 @@ export async function GET(request: NextRequest) {
       await auditRequest(request, { event: "auth.sign_in", outcome: "ok", actorSub: null, status: 302 });
     }
     await clearPkce();
-    return NextResponse.redirect(new URL("/", origin));
+    return NextResponse.redirect(new URL((await takeReturnTo()) ?? "/", origin));
   } catch {
     return fail();
   }

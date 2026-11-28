@@ -23,6 +23,18 @@ export type RenderOptions = {
   /** The site's token values, over the theme's defaults (#56, #57). */
   tokens?: Record<string, unknown>;
   /**
+   * The site's own CSS (#65, paid plans on the hosted service). It renders in
+   * the last cascade layer, so it wins over the theme and blocks, and always
+   * ships inline with the critical CSS.
+   */
+  customCss?: string;
+  /**
+   * Replacement Liquid sources for the locked theme's own templates, by path
+   * such as "partials/footer" (#65). Paths the theme version does not have are
+   * skipped with a warning, so an override never outlives the template it replaced.
+   */
+  templateOverrides?: Record<string, string>;
+  /**
    * Builds the page's CSP from the exact text of each <style> element, written
    * into a <meta> tag. Server renders pass publishedCsp (lib/theme/csp.ts); the engine
    * itself has no Node imports so the editor can render in the browser.
@@ -262,11 +274,12 @@ function classes(tokens: unknown, ...leading: unknown[]): string {
 
 const engines = new WeakMap<ThemePackage, Liquid>();
 
-function engineFor(theme: ThemePackage): Liquid {
-  let liquid = engines.get(theme);
+function engineFor(theme: ThemePackage, overrides?: Record<string, string>): Liquid {
+  const custom = overrides && Object.keys(overrides).length > 0;
+  let liquid = custom ? undefined : engines.get(theme);
   if (liquid) return liquid;
   const templates: Record<string, string> = {};
-  for (const [name, source] of Object.entries(theme.templates)) templates[`${name}.liquid`] = source;
+  for (const [name, source] of Object.entries(theme.templates)) templates[`${name}.liquid`] = overrides && Object.hasOwn(overrides, name) ? overrides[name] : source;
   liquid = new Liquid({
     templates,
     extname: ".liquid",
@@ -290,7 +303,7 @@ function engineFor(theme: ThemePackage): Liquid {
   liquid.registerFilter("raw", () => {
     throw new Error("the raw filter is not available in themes");
   });
-  engines.set(theme, liquid);
+  if (!custom) engines.set(theme, liquid);
   return liquid;
 }
 
@@ -383,6 +396,7 @@ function planCss(
   firstSection: Set<string>,
   optimizer: RenderOptions["optimizer"],
   tokens: string,
+  customCss: string,
 ): { critical: string; deferred: TextAsset | null } {
   const unused: Record<string, string[]> = {};
   for (const name of usedBlocks) {
@@ -398,10 +412,11 @@ function planCss(
   // Layers fix precedence whatever order the CSS arrives in (tokens < theme < blocks < customer).
   const layer = (name: string, css: string) => (css ? `@layer ${name}{${css}}` : "");
   const themeCss = layer("theme", base);
-  const all = themeCss + layer("blocks", blocks.map((block) => block.css).join(""));
+  const customer = layer("customer", customCss);
+  const all = themeCss + layer("blocks", blocks.map((block) => block.css).join("")) + customer;
   if (!optimizer || optimizer.gzipSize(tokens + all) <= CRITICAL_CSS_BUDGET_BYTES) return { critical: all, deferred: null };
 
-  const critical = themeCss + layer("blocks", blocks.filter((block) => firstSection.has(block.name)).map((block) => block.css).join(""));
+  const critical = themeCss + layer("blocks", blocks.filter((block) => firstSection.has(block.name)).map((block) => block.css).join("")) + customer;
   const rest = layer("blocks", blocks.filter((block) => !firstSection.has(block.name)).map((block) => block.css).join(""));
   if (!rest) return { critical, deferred: null };
   return {
@@ -417,8 +432,13 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
   if (!Object.hasOwn(manifest.templates, template)) {
     throw new Error(`${manifest.name} has no "${template}" template`);
   }
-  const liquid = engineFor(theme);
   const warnings: string[] = [];
+  const overrides: Record<string, string> = {};
+  for (const [name, source] of Object.entries(options.templateOverrides ?? {})) {
+    if (Object.hasOwn(theme.templates, name)) overrides[name] = source;
+    else warnings.push(`Template override "${name}" skipped: ${manifest.name} ${manifest.version} has no such template`);
+  }
+  const liquid = engineFor(theme, overrides);
   const html = new WeakMap<object, string>();
   const blocks: { view: BlockView }[] = [];
   const usedBlocks = new Set<string>();
@@ -535,7 +555,17 @@ export function renderPage(page: Page, theme: ThemePackage, options: RenderOptio
   const hasIslands = islandAssets.length > 0;
 
   const fonts = planFonts(theme, resolvedTokens, mode, optimizer?.hash, warnings);
-  const css = planCss(theme, usedBlocks, usedOptions, firstSectionBlocks, optimizer, tokenStyle);
+  const customCss = options.customCss?.trim() ? minifyCss(options.customCss) : "";
+  const css = planCss(theme, usedBlocks, usedOptions, firstSectionBlocks, optimizer, tokenStyle, customCss);
+  if (optimizer && customCss) {
+    const without = planCss(theme, usedBlocks, usedOptions, firstSectionBlocks, optimizer, tokenStyle, "").critical;
+    const over = optimizer.gzipSize(tokenStyle + css.critical) - CRITICAL_CSS_BUDGET_BYTES;
+    if (over > 0 && optimizer.gzipSize(tokenStyle + without) <= CRITICAL_CSS_BUDGET_BYTES) {
+      warnings.push(`Custom CSS pushed the critical CSS ${over} bytes over its ${CRITICAL_CSS_BUDGET_BYTES} byte budget; shorten it`);
+    } else if (over > 0) {
+      warnings.push(`Critical CSS is ${over} bytes over its ${CRITICAL_CSS_BUDGET_BYTES} byte budget, including ${optimizer.gzipSize(customCss)} bytes of custom CSS`);
+    }
+  }
   const criticalCss = fonts.css + (hasIslands ? ISLAND_CSS : "") + css.critical;
   const csp = options.csp
     ? options.csp([tokenStyle, criticalCss], {
