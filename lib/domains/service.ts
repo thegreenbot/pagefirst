@@ -3,10 +3,12 @@ import { recordAudit } from "@/lib/audit";
 import { query } from "@/lib/db/client";
 import { deleteCanonicalHost, deleteHost, putCanonicalHost, putHost } from "@/lib/publish/r2";
 import { publishDomain } from "@/lib/publish/sites";
+import { planForSite, requireFeature, siteAllows } from "@/lib/tenant/orgs";
+import { featureAllowed } from "@/lib/tenant/plans";
 import { isApex, normalizeHostname, withinLimits, type DomainLimits } from "./hostname";
 import { configuredDomainProvider } from "./index";
 import type { DnsRecord, DomainProvider, ProviderStatus } from "./provider";
-import { countDomains, createDomain, DomainError, getDomain, listDomainsByStatus, listDomains, removeDomain, setDomainStatus, type SiteDomain } from "./store";
+import { countActiveDomains, countDomains, createDomain, DomainError, getDomain, getGraceUntil, setGraceUntil, listDomainsByStatus, listDomains, removeDomain, setDomainStatus, type SiteDomain } from "./store";
 
 /**
  * Adds, verifies, activates and removes a site's custom domains (#186).
@@ -40,6 +42,9 @@ export type DomainDeps = {
   /** Extra hostnames that can never be custom domains (the app's own). */
   reserved?: readonly string[];
 };
+
+/** How long an active domain keeps serving after its plan stops including custom domains. Open in #182; 14 days until Will decides. */
+export const DOWNGRADE_GRACE_DAYS = 14;
 
 export const DEFAULT_LIMITS: DomainLimits = { perSite: 5, perAccount: 25 };
 
@@ -131,6 +136,10 @@ async function deactivate(actor: Actor, domain: SiteDomain, status: "pending" | 
 }
 
 async function apply(actor: Actor, domain: SiteDomain, result: ProviderStatus, deps: DomainDeps): Promise<DomainView> {
+  // A domain that isn't serving yet doesn't start on a plan without custom domains.
+  if (result.state === "active" && domain.status !== "active" && !(await siteAllows(domain.siteId, "customDomains"))) {
+    return { domain: await deactivate(actor, domain, "error", "Your plan doesn't include custom domains. Upgrade to serve this domain.", deps), records: [], message: null };
+  }
   if (result.state === "active") return { domain: await activate(actor, domain, deps), records: [], message: null };
   if (result.state === "error") return { domain: await deactivate(actor, domain, "error", result.message ?? "This domain could not be verified.", deps), records: result.records, message: result.message };
   const target = result.state === "pending" ? "pending" : "verifying";
@@ -140,6 +149,8 @@ async function apply(actor: Actor, domain: SiteDomain, result: ProviderStatus, d
 
 export async function addSiteDomain(actor: Actor, input: string, deps: DomainDeps = defaultDeps()): Promise<DomainView> {
   const provider = requireProvider(deps);
+  // Free sites keep their pagefirst.io address; custom domains are a paid feature (PlanError → 402 with an upgrade prompt).
+  await requireFeature(actor.siteId, "customDomains");
   const checked = normalizeHostname(input, { publishDomain: publishDomain(), reserved: deps.reserved });
   if (!checked.ok) throw new DomainServiceError("invalid", checked.reason);
   if (isApex(checked.hostname)) {
@@ -241,6 +252,19 @@ export async function reverifyDomains(deps: DomainDeps = defaultDeps(), limit = 
     if (!site) continue;
     const actor: Actor = { ownerSub: site.owner_sub, siteId: domain.siteId };
     try {
+      // Plan changes: an active domain on a plan without the feature serves through a grace period, then stops.
+      const allowed = featureAllowed(await planForSite(domain.siteId), "customDomains");
+      if (!allowed && domain.status !== "active") continue;
+      if (domain.status === "active") {
+        const until = await getGraceUntil(domain.id);
+        if (allowed && until) await setGraceUntil(domain.id, null);
+        if (!allowed && !until) await setGraceUntil(domain.id, new Date(Date.now() + DOWNGRADE_GRACE_DAYS * 86_400_000));
+        if (!allowed && until && until.getTime() <= Date.now()) {
+          await deactivate(actor, domain, "error", "Your plan no longer includes custom domains, so this domain stopped serving. Upgrade to serve it again.", deps);
+          changed += 1;
+          continue;
+        }
+      }
       const result = await provider.status(domain.providerRef ?? domain.hostname, domain.hostname, domain.verificationToken);
       const before = domain.status;
       const view = await apply(actor, domain, result, deps);
@@ -250,4 +274,9 @@ export async function reverifyDomains(deps: DomainDeps = defaultDeps(), limit = 
     }
   }
   return { checked: domains.length, changed, failed };
+}
+
+/** How many custom hostnames are active, for watching what Cloudflare for SaaS costs. */
+export function activeDomainCount(): Promise<number> {
+  return countActiveDomains();
 }
