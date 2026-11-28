@@ -1,3 +1,8 @@
+import { databaseConfigured } from "@/lib/db/client";
+import { countSuggestions } from "@/lib/google/suggestions";
+import { planAdopt, type AdoptReport } from "@/lib/google/adopt";
+import { annotateChanged, changedInDoc } from "./changes";
+import { snapshotPage } from "./snapshots";
 import { buildAdoptRequests, buildCommitRequests } from "@/lib/google/commit";
 import { googleConfigured } from "@/lib/google/config";
 import { redact } from "@/lib/log";
@@ -68,7 +73,7 @@ export function googleFor(ctx: ServiceContext): GoogleClient {
  * and no way to look up a file's folder, the call is refused. Sample pages
  * are not in any folder, so a restricted credential cannot reach them.
  */
-async function requireFolder(ctx: ServiceContext, fileId: string): Promise<void> {
+export async function requireFolder(ctx: ServiceContext, fileId: string): Promise<void> {
   if (!ctx.siteFolders) return;
   const token = ctx.googleToken;
   const parentsOf = googleFor(ctx).parentsOf;
@@ -90,7 +95,7 @@ function liveToken(ctx: ServiceContext): string {
   return ctx.googleToken;
 }
 
-export async function listPages(ctx: ServiceContext): Promise<Library> {
+export async function listPages(ctx: ServiceContext, options: { changed?: boolean } = {}): Promise<Library> {
   requireScope(ctx, "pages:read");
   if (isSample(ctx)) {
     ensureSample();
@@ -99,10 +104,10 @@ export async function listPages(ctx: ServiceContext): Promise<Library> {
   const token = liveToken(ctx);
   try {
     const files = await googleFor(ctx).listDocuments(token, ctx.siteFolders);
-    return {
-      sample: false,
-      pages: files.map((file) => ({ fileId: file.id, path: slugify(file.name), title: file.name, revisionId: "", ...(file.modifiedTime ? { modifiedTime: file.modifiedTime } : {}) })),
-    };
+    const summaries: PageSummary[] = files.map((file) => ({ fileId: file.id, path: slugify(file.name), title: file.name, revisionId: "", ...(file.modifiedTime ? { modifiedTime: file.modifiedTime } : {}) }));
+    // Compared with the stored snapshots: one query, no Docs call per page (#30).
+    const annotated = databaseConfigured() ? await annotateChanged(summaries) : summaries;
+    return { sample: false, pages: options.changed ? annotated.filter((page) => page.changed === true) : annotated };
   } catch (err) {
     throw toServiceError(err, "Could not list pages.", (text) => redact(text, token));
   }
@@ -120,8 +125,17 @@ export async function getPage(ctx: ServiceContext, fileId: string): Promise<Page
   const token = liveToken(ctx);
   try {
     await requireFolder(ctx, fileId);
-    const doc = await googleFor(ctx).fetchDocument(token, fileId);
-    return { page: parseDocument(doc, slugify(doc.title ?? "")), sample: false };
+    const google = googleFor(ctx);
+    const doc = await google.fetchDocument(token, fileId);
+    const page = parseDocument(doc, slugify(doc.title ?? ""));
+    const drift = databaseConfigured()
+      ? await changedInDoc(fileId, page.revisionId, async () => {
+          const meta = await google.driveMeta!(token, fileId);
+          return { modifiedTime: meta.modifiedTime, modifiedBy: meta.lastModifiedBy?.email ?? meta.lastModifiedBy?.name ?? null };
+        })
+      : null;
+    const suggestions = countSuggestions(doc);
+    return { page, sample: false, ...(drift ? { changedInDoc: drift } : {}), ...(suggestions > 0 ? { pendingSuggestions: suggestions } : {}) };
   } catch (err) {
     const typed = toServiceError(err, "Could not read the page.", (text) => redact(text, token));
     if (typed.code === "not_found") return null;
@@ -190,8 +204,17 @@ async function commitLive(ctx: ServiceContext, token: string, fileId: string, ba
   }
 
   if (requests.length > 0) await google.batchUpdate(token, fileId, requests);
-  const updated = await google.fetchDocument(token, fileId);
-  return { ok: true, page: parseDocument(updated, slugify(updated.title ?? "")), sample: false };
+  let updated = await google.fetchDocument(token, fileId);
+  // Content typed in Docs has no id yet; track it now so the snapshot below holds ids that last (#32).
+  const adopt = planAdopt(updated);
+  if (adopt.requests.length > 0) {
+    await google.batchUpdate(token, fileId, adopt.requests);
+    updated = await google.fetchDocument(token, fileId);
+  }
+  const page = parseDocument(updated, slugify(updated.title ?? ""));
+  // The next import diffs the Doc against this (#29).
+  await snapshotPage(ctx, google, page, "commit");
+  return { ok: true, page, sample: false };
 }
 
 /**
@@ -223,5 +246,38 @@ export async function commit(ctx: ServiceContext, fileId: string, baseRevisionId
       error: typed.message,
       ...(code === "upstream_quota" && typed.retryAfterSeconds ? { retryAfterSeconds: typed.retryAfterSeconds } : {}),
     };
+  }
+}
+
+
+export type AdoptResult = { page: Page; report: AdoptReport; wrote: boolean };
+
+/**
+ * Gives every node in the Doc a named range (#32). It writes only named ranges,
+ * which change nothing a reader sees, and writes nothing when the Doc is already
+ * tracked. A Doc write, so it needs the commit scope and the folder allow-list.
+ */
+export async function adoptPage(ctx: ServiceContext, fileId: string): Promise<AdoptResult> {
+  requireScope(ctx, "pages:commit");
+  if (!isSafeId(fileId)) throw new ServiceError("invalid", "Invalid page id.");
+  if (isSample(ctx)) {
+    ensureSample();
+    const page = samplePages.get(fileId);
+    if (!page) throw new ServiceError("not_found", "Page not found");
+    return { page, report: { adopted: 0, duplicated: [], orphans: [], reanchored: [] }, wrote: false };
+  }
+  const token = liveToken(ctx);
+  try {
+    await requireFolder(ctx, fileId);
+    const google = googleFor(ctx);
+    let doc = await google.fetchDocument(token, fileId);
+    const plan = planAdopt(doc);
+    if (plan.requests.length > 0) {
+      await google.batchUpdate(token, fileId, plan.requests);
+      doc = await google.fetchDocument(token, fileId);
+    }
+    return { page: parseDocument(doc, slugify(doc.title ?? "")), report: plan.report, wrote: plan.requests.length > 0 };
+  } catch (err) {
+    throw toServiceError(err, "Could not adopt the page.", (text) => redact(text, token));
   }
 }

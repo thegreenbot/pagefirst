@@ -5,12 +5,13 @@ import { mayPublishPublicly } from "@/lib/publish/allowlist";
 import { uploadToCloudflare } from "@/lib/publish/cloudflare";
 import { encodeMissing, planImages, recordSiteRenditions, siteHasRenditions } from "@/lib/publish/images";
 import { readPreviewAsset, savePreview, savePreviewAssets } from "@/lib/publish/preview";
-import { publishToOwnSite, siteHostname, sitePublishingEnabled } from "@/lib/publish/sites";
+import { publishToSite, siteHostname, sitePublishingEnabled } from "@/lib/publish/sites";
 import { isCurrentRender, recordRenderKey, renderKey } from "@/lib/site/render-key";
 import { renderContextFor, siteForOwner } from "@/lib/site/theme-config";
 import { recordSitePage } from "@/lib/site/theme-preview";
 import { requireScope, ServiceError, type ServiceContext } from "./context";
-import { getPage } from "./pages";
+import { getPage, googleFor } from "./pages";
+import { snapshotPage } from "./snapshots";
 
 export type PublishResponse = PublishResult & { warning?: string; unchanged?: boolean };
 
@@ -19,6 +20,10 @@ export type PublishOptions = {
   public?: boolean;
   /** Refuse unless the Doc is still at this revision. */
   revisionId?: string;
+  /** The import this publish follows, recorded on the snapshot and in the audit entry (#34). */
+  importId?: string;
+  /** Publish even though the Doc has pending suggested edits, which the published page will not include. */
+  allowSuggestions?: boolean;
 };
 
 /** What an adapter records in the audit log for this call. */
@@ -28,6 +33,7 @@ export type PublishAudit = {
   siteId: string | null;
   resultRevisionId: string;
   pagePath: string | null;
+  importId?: string | null;
 };
 
 export type PublishOutcome = { response: PublishResponse; audit: PublishAudit };
@@ -48,12 +54,17 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
     throw new ServiceError("conflict", "This doc changed since that revision.", { page: payload.page });
   }
 
+  // Suggested edits are not content yet; publishing around them silently drops them (ADR 0006).
+  if (wantsPublic && payload.pendingSuggestions && !options.allowSuggestions) {
+    throw new ServiceError("suggestions_pending", `The Doc has ${payload.pendingSuggestions} pending suggested edit${payload.pendingSuggestions === 1 ? "" : "s"}. Accept or reject them in Google Docs, or publish with allowSuggestions.`, { page: payload.page });
+  }
+
   // Sample pages have no site; signed-in pages render with their site's stored theme (#56).
-  const renderContext = await renderContextFor(payload.sample ? null : ctx.actor.sub, fileId);
+  const renderContext = await renderContextFor(payload.sample ? null : ctx.actor.sub, fileId, ctx.siteId);
   const key = renderKey(payload.page.revisionId, renderContext);
   // Same revision, theme and site config as the last public publish: nothing to render or upload (#67).
   if (wantsPublic && ctx.googleToken && ctx.actor.sub && !payload.sample && sitePublishingEnabled()) {
-    const siteId = await siteForOwner(ctx.actor.sub);
+    const siteId = ctx.siteId ?? (await siteForOwner(ctx.actor.sub));
     if (await isCurrentRender(siteId, fileId, key)) {
       const path = payload.page.path.replace(/^\/+/, "");
       const response: PublishResponse = { ok: true, sample: false, previewPath: `/published/${fileId}`, url: `https://${await siteHostname(siteId)}/${path === "index" ? "" : path}`, unchanged: true };
@@ -77,6 +88,7 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
       siteId,
       resultRevisionId: payload.page.revisionId,
       pagePath: wantsPublic ? payload.page.path : null,
+      ...(options.importId ? { importId: options.importId } : {}),
     },
   });
 
@@ -94,14 +106,15 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
       return audit("denied", "public:no_account");
     }
     try {
-      const siteId = await siteForOwner(ctx.actor.sub);
+      const siteId = ctx.siteId ?? (await siteForOwner(ctx.actor.sub));
       const uploaded = await siteHasRenditions(siteId, imagePlan.planned.map((image) => image.hash));
       const siteImages = await encodeMissing(imagePlan.planned, (image) => uploaded.has(image.hash));
-      const published = await publishToOwnSite(ctx.actor.sub, payload.page.path, { html, csp, preloads, assets: [...assets, ...siteImages.assets] });
+      const published = await publishToSite(siteId, payload.page.path, { html, csp, preloads, assets: [...assets, ...siteImages.assets] });
       await recordSiteRenditions(published.siteId, siteImages.encoded);
       // Theme change previews sample these pages, and applying one republishes them (#66).
       await recordSitePage(published.siteId, { fileId, path: payload.page.path, revisionId: payload.page.revisionId });
       await recordRenderKey(published.siteId, fileId, key);
+      await snapshotPage(ctx, googleFor(ctx), payload.page, "publish", { importId: options.importId });
       response.url = published.url;
       return audit("ok", "public", published.siteId);
     } catch (error) {
@@ -119,8 +132,10 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
 
   try {
     const url = await uploadToCloudflare(payload.page.path, html);
-    if (url) response.url = url;
-    else response.warning = "Cloudflare did not return a page address.";
+    if (url) {
+      response.url = url;
+      if (!payload.sample) await snapshotPage(ctx, googleFor(ctx), payload.page, "publish", { importId: options.importId });
+    } else response.warning = "Cloudflare did not return a page address.";
   } catch (error) {
     response.warning = error instanceof Error ? error.message : "Cloudflare upload failed";
   }

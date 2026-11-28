@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PreviewFrame } from "@/components/editor/preview-frame";
 import { applyOps } from "@/lib/page/ops";
+import { rebaseOps } from "@/lib/editor/rebase";
+import { ImportReview } from "./import-review";
 import {
   createId,
   type Block,
@@ -182,6 +184,7 @@ export function PageEditor({
   siteConfig,
   presentation: initialPresentation,
   themes = [],
+  drift = null,
 }: {
   initial: Page;
   sample: boolean;
@@ -192,7 +195,11 @@ export function PageEditor({
   presentation: PagePresentation | null;
   /** Themes the site can switch to (#64); empty without a stored site. */
   themes?: AvailableTheme[];
+  /** Set when the Doc changed outside Pagefirst since the last save or publish (#31). */
+  drift?: { modifiedBy?: string | null; modifiedTime?: string | null } | null;
 }) {
+  const [reviewing, setReviewing] = useState(false);
+  const [showDrift, setShowDrift] = useState(Boolean(drift));
   const [model, setModel] = useState(() => createModel(initial));
   const modelRef = useRef(model);
   const [status, setStatus] = useState("");
@@ -364,6 +371,29 @@ export function PageEditor({
     }
   }
 
+  function onApplyImport(docPage: Page, keepDoc: ReadonlySet<string>) {
+    const current = modelRef.current;
+    const { page, kept, dropped } = rebaseOps(docPage, current.pending, keepDoc);
+    const next: EditorState = {
+      draft: page,
+      basePage: structuredClone(docPage),
+      savedRevision: docPage.revisionId,
+      pending: kept,
+    };
+    modelRef.current = next;
+    setModel(next);
+    setConflict(false);
+    setReviewing(false);
+    setShowDrift(false);
+    setStatus(
+      dropped.length > 0
+        ? `Imported the Doc's changes. ${dropped.length} of your edits were left out.`
+        : kept.length > 0
+          ? "Imported the Doc's changes. Your uncommitted edits are kept."
+          : "Imported the Doc's changes.",
+    );
+  }
+
   async function onReload() {
     const fileId = modelRef.current.draft.fileId;
     try {
@@ -495,15 +525,38 @@ export function PageEditor({
               type="button"
               className={buttonClass}
               onClick={() => {
-                void onReload();
+                if (sample) void onReload();
+                else setReviewing(true);
               }}
             >
-              Reload
+              {sample ? "Reload" : "Review changes"}
             </button>
           ) : null}
         </div>
       </header>
 
+      {showDrift && drift && !reviewing ? (
+        <p role="status" className="flex flex-wrap items-center gap-3 border-b border-rule bg-paper-2 px-5 py-2 text-sm text-ink">
+          <span>
+            Changed in Google Docs{drift.modifiedBy ? ` by ${drift.modifiedBy}` : ""}
+            {drift.modifiedTime ? ` at ${new Date(drift.modifiedTime).toISOString().slice(0, 16).replace("T", " ")} UTC` : ""}.
+          </span>
+          {sample ? null : (
+            <button type="button" className={buttonClass} onClick={() => setReviewing(true)}>
+              Review changes
+            </button>
+          )}
+        </p>
+      ) : null}
+      {reviewing ? (
+        <ImportReview
+          fileId={draft.fileId}
+          baseRevisionId={model.savedRevision}
+          ops={model.pending}
+          onApply={onApplyImport}
+          onClose={() => setReviewing(false)}
+        />
+      ) : null}
       <main className="mx-auto grid max-w-6xl gap-6 bg-paper px-4 pb-24 pt-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0">
           {rendered.error ? (

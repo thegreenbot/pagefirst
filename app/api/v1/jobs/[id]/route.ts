@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { v1 } from "@/lib/api/v1";
-import { advanceJob } from "@/lib/jobs/run";
+import { advanceAndNotify } from "@/lib/jobs/run";
 import { getJob, jobCounts, listItems } from "@/lib/jobs/store";
 import { ServiceError } from "@/lib/service";
 
@@ -13,7 +13,7 @@ export function GET(request: Request, context: { params: Promise<{ id: string }>
     const { id } = await context.params;
     const job = await getJob(id, `${credential.kind}:${credential.id}:${ctx.actor.sub}`);
     if (!job) throw new ServiceError("not_found", "Job not found.");
-    if (job.status === "queued" || job.status === "running") after(() => advanceJob(job.id).catch(() => undefined));
+    if (job.status === "queued" || job.status === "running") after(() => advanceAndNotify(job.id));
     const url = new URL(request.url);
     const afterIdx = /^\d{1,6}$/.test(url.searchParams.get("after") ?? "") ? Number(url.searchParams.get("after")) : -1;
     const limit = Number(url.searchParams.get("limit")) || 100;

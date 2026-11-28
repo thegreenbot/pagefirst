@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import { ownSite } from "@/lib/api/site";
 import { v1 } from "@/lib/api/v1";
 import { MAX_PAGES_PER_JOB } from "@/lib/api/limits";
-import { advanceJob } from "@/lib/jobs/run";
+import { advanceAndNotify } from "@/lib/jobs/run";
 import { createJob, jobCounts } from "@/lib/jobs/store";
 import { requireScope, ServiceError } from "@/lib/service";
 import { listSitePages } from "@/lib/site/theme-preview";
@@ -31,12 +31,13 @@ export function POST(request: Request) {
         sub: ctx.actor.sub!,
         scopes: [...(ctx.scopes ?? [])],
         siteFolders: ctx.siteFolders,
+        ...(ctx.siteId ? { siteId: ctx.siteId } : {}),
         kind: "publish",
         dryRun: false,
         policy: { republish: true },
         items: pages.map((page) => ({ fileId: page.fileId, params: { public: true, latest: true } })),
       });
-      after(() => advanceJob(job.id).catch(() => undefined));
+      after(() => advanceAndNotify(job.id));
       return NextResponse.json({ job: { id: job.id, kind: job.kind, status: job.status, createdAt: job.createdAt }, counts: await jobCounts(job.id) }, { status: 202 });
     },
     { idempotent: true, audit: "job.started" },

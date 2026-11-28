@@ -16,7 +16,28 @@ type Walked = {
   metadata: Record<string, string>;
   sections: Section[];
   specs: Spec[];
+  /** Ids a named range gave to more than one node (a copy/paste in Docs): id -> how many nodes claimed it. */
+  duplicates: Record<string, number>;
 };
+
+/** The id of the first section, which has no section break and so no named range. Stable across parses. */
+export const FIRST_SECTION_ID = "s_start";
+
+// Ids handed out during the walk in progress. The walk is synchronous, so one slot is enough.
+let claimed: Set<string> | null = null;
+let duplicated: Record<string, number> | null = null;
+
+/** Returns `id` the first time it is claimed in a walk, and a fresh id (recording the clash) after that. */
+function claim(id: string | undefined, prefix: string): string {
+  if (!id) return createId(prefix);
+  if (!claimed || !duplicated) return id;
+  if (!claimed.has(id)) {
+    claimed.add(id);
+    return id;
+  }
+  duplicated[id] = (duplicated[id] ?? 1) + 1;
+  return createId(prefix);
+}
 
 const walkCache = new WeakMap<DocsDocument, Walked>();
 
@@ -141,11 +162,11 @@ function namedId(
 }
 
 function nodeId(doc: DocsDocument, elements: DocsStructuralElement[]): string {
-  return namedId(doc, elements, "pg/node/") ?? createId("n");
+  return claim(namedId(doc, elements, "pg/node/"), "n");
 }
 
 function sectionBreakId(doc: DocsDocument, el: DocsStructuralElement): string {
-  return namedId(doc, [el], "pg/section/") ?? createId("s");
+  return claim(namedId(doc, [el], "pg/section/"), "s");
 }
 
 function glyphIsNumbered(bullet: { listId?: string }): boolean {
@@ -323,7 +344,9 @@ function computeWalk(doc: DocsDocument): Walked {
   const metadata: Record<string, string> = {};
   const sections: Section[] = [];
   const specs: Spec[] = [];
-  let current: Section = { id: createId("s"), style: [], children: [] };
+  claimed = new Set();
+  duplicated = {};
+  let current: Section = { id: FIRST_SECTION_ID, style: [], children: [] };
   const elements = doc.body?.content ?? [];
   let index = 0;
   while (index < elements.length) {
@@ -372,10 +395,10 @@ function computeWalk(doc: DocsDocument): Walked {
     index += 1;
   }
   sections.push(current);
-  if (sections.length === 0) {
-    sections.push({ id: createId("s"), style: [], children: [] });
-  }
-  return { metadata, sections, specs };
+  const duplicates = duplicated;
+  claimed = null;
+  duplicated = null;
+  return { metadata, sections, specs, duplicates };
 }
 
 function walkDocument(doc: DocsDocument): Walked {
@@ -399,4 +422,9 @@ export function parseDocument(doc: DocsDocument, path?: string): Page {
 
 export function namedRangeSpecs(doc: DocsDocument): Spec[] {
   return walkDocument(doc).specs;
+}
+
+/** Ids that more than one node in the Doc claimed through its named ranges (a copy/paste), with how many did. */
+export function duplicateIds(doc: DocsDocument): Record<string, number> {
+  return walkDocument(doc).duplicates;
 }

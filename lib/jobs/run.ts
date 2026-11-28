@@ -2,7 +2,9 @@ import { accessTokenFor } from "@/lib/auth/server-sessions";
 import { applyOps } from "@/lib/page/ops";
 import { isSafeId } from "@/lib/page/types";
 import { validateCommitRequest } from "@/lib/page/validate";
-import { commit, getPage, publish, ServiceError, type ServiceContext } from "@/lib/service";
+import { recordAudit } from "@/lib/audit";
+import { commit, getPage, importAndPublish, importPage, isConflictPolicy, publish, ServiceError, type ImportResult, type ServiceContext } from "@/lib/service";
+import { deliverDue } from "./webhook";
 import { claimItems, finishItem, readJobById, releaseItem, settleJob, type ItemStatus, type JobItem, type JobRow } from "./store";
 
 /**
@@ -24,6 +26,7 @@ function contextFor(job: JobRow, item: JobItem, googleToken: string): ServiceCon
     requestId: `${job.id}:${item.idx}`,
     scopes: new Set(job.scopes),
     ...(job.siteFolders ? { siteFolders: job.siteFolders } : {}),
+    ...(job.siteId ? { siteId: job.siteId } : {}),
   };
 }
 
@@ -36,13 +39,87 @@ function fromError(error: unknown, item: JobItem): Outcome {
   return { status: "error", code: "upstream_error", message: "The item could not be processed." };
 }
 
+/** How many changes an item's stored result keeps; the rest are counted. */
+const RESULT_CHANGES = 200;
+
+function importSummary(result: ImportResult) {
+  const kinds: Record<string, number> = {};
+  for (const change of result.changes) kinds[change.kind] = (kinds[change.kind] ?? 0) + 1;
+  return {
+    // The Doc's revision as reviewed: what an approved run pins.
+    revisionId: result.reviewedRevisionId,
+    importId: result.importId,
+    fromRevisionId: result.fromRevisionId,
+    toRevisionId: result.toRevisionId,
+    firstImport: result.firstImport,
+    docAuthor: result.docAuthor,
+    changeCount: result.changes.length,
+    changeKinds: kinds,
+    changes: result.changes.slice(0, RESULT_CHANGES),
+    changesTruncated: result.changes.length > RESULT_CHANGES,
+    conflicts: result.conflicts.map((c) => ({ unit: c.unit, nodeId: c.nodeId ?? null, kept: c.kept })),
+    adopted: result.adopt.adopted,
+    suggestions: result.opaque.suggestions,
+  };
+}
+
+/**
+ * One page of an `import` or `import_and_publish` job (#42). A dry run reports
+ * and writes nothing. An approved run passes the reviewed `revisionId` back as
+ * `item.revisionId`; a Doc that moved since is skipped as `revision_moved`.
+ */
+export async function runImportItem(job: JobRow, item: JobItem, ctx: ServiceContext): Promise<Outcome> {
+  const askedPolicy = item.params.policy ?? job.policy.policy;
+  const policy = isConflictPolicy(askedPolicy) ? askedPolicy : "doc-wins";
+  const expectRevisionId = typeof item.params.revisionId === "string" && item.params.revisionId ? item.params.revisionId : undefined;
+  const audit = (event: "page.import" | "page.publish", imported: ImportResult, outcome: "ok" | "error", errorCode: string | null, extra: { resultRevisionId?: string; pagePath?: string | null } = {}) =>
+    recordAudit({
+      event,
+      outcome,
+      errorCode,
+      requestId: ctx.requestId,
+      actorSub: ctx.actor.sub,
+      actorKey: `job:${job.id}`,
+      client: "api",
+      fileId: item.fileId,
+      baseRevisionId: imported.fromRevisionId,
+      resultRevisionId: extra.resultRevisionId ?? imported.toRevisionId,
+      pagePath: extra.pagePath ?? null,
+      importId: imported.importId,
+      docAuthor: imported.docAuthor,
+      changeCount: imported.changes.length,
+      jobId: job.id,
+    });
+  try {
+    if (job.kind === "import_and_publish" && !job.dryRun) {
+      const done = await importAndPublish(ctx, item.fileId, { policy, expectRevisionId, public: item.params.public !== false, allowSuggestions: item.params.allowSuggestions === true });
+      const result = { ...importSummary(done.import), ...(done.publish ? { published: { url: done.publish.response.url ?? null, previewPath: done.publish.response.previewPath, unchanged: done.publish.response.unchanged === true } } : {}) };
+      await audit("page.import", done.import, "ok", null);
+      if (!done.publish) return { status: "conflict", code: "import_conflicts", message: "A conflict needs a person to settle it; nothing was published.", result };
+      await audit("page.publish", done.import, done.publish.audit.outcome === "ok" ? "ok" : "error", done.publish.audit.errorCode, { resultRevisionId: done.publish.audit.resultRevisionId, pagePath: done.publish.audit.pagePath });
+      return { status: "ok", result };
+    }
+    const imported = await importPage(ctx, item.fileId, { policy, dryRun: job.dryRun, expectRevisionId });
+    await audit("page.import", imported, "ok", job.dryRun ? "dry_run" : null);
+    const result = importSummary(imported);
+    if (imported.needsReview) return { status: "conflict", code: "import_conflicts", message: `${imported.conflicts.length} conflict${imported.conflicts.length === 1 ? "" : "s"} need a decision; the page was held back.`, result };
+    return { status: "ok", result };
+  } catch (error) {
+    if (error instanceof ServiceError && error.code === "conflict") {
+      return { status: "skipped", code: "revision_moved", message: "The Doc changed after it was reviewed; run a new dry run." };
+    }
+    if (error instanceof ServiceError && error.code === "suggestions_pending") {
+      return { status: "conflict", code: "suggestions_pending", message: error.message };
+    }
+    throw error;
+  }
+}
+
 export async function runItem(job: JobRow, item: JobItem, googleToken: string): Promise<Outcome> {
   const ctx = contextFor(job, item, googleToken);
   if (!isSafeId(item.fileId)) return { status: "error", code: "invalid", message: "Invalid page id." };
   try {
-    if (job.kind === "import" || job.kind === "import_and_publish") {
-      return { status: "skipped", code: "unsupported", message: "Importing Doc changes is not available yet." };
-    }
+    if (job.kind === "import" || job.kind === "import_and_publish") return await runImportItem(job, item, ctx);
     if (job.kind === "commit") {
       const parsed = validateCommitRequest({ baseRevisionId: item.params.baseRevisionId, ops: item.params.ops });
       if (!parsed.ok) return { status: "error", code: "invalid", message: `${parsed.path}: ${parsed.error}` };
@@ -120,4 +197,10 @@ export async function advanceJob(jobId: string, budgetMs = 20_000): Promise<{ do
     // A quota hit means stop for now; the next pass resumes after the pacing window.
     if (paused) return { done: false };
   }
+}
+
+/** Advances a job, then sends any completion webhooks that are due (this job's, or an earlier one's retry). */
+export async function advanceAndNotify(jobId: string): Promise<void> {
+  await advanceJob(jobId).catch(() => undefined);
+  await deliverDue(3).catch(() => undefined);
 }
