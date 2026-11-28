@@ -18,7 +18,7 @@ export async function GET(request: Request, { params }: Params) {
        FROM audit_events
       WHERE (event IN ('site.theme.update', 'site.theme.preview', 'site.theme.apply', 'site.theme.discard')
              AND site_id IN (SELECT id FROM sites WHERE org_id = $1))
-         OR (event = 'org.theme_policy' AND page_path LIKE $2)
+         OR (event IN ('org.theme_policy', 'org.theme_rollout') AND page_path LIKE $2)
       ORDER BY created_at DESC
       LIMIT $3`,
     [admin.orgId, `${admin.orgId}:%`, limit],
@@ -32,7 +32,7 @@ export async function GET(request: Request, { params }: Params) {
       client: row.client,
       siteId: row.site_id,
       errorCode: row.error_code,
-      ...(row.event === "org.theme_policy" ? { summary: row.page_path?.slice(admin.orgId.length + 1) ?? null } : {}),
+      ...(row.event.startsWith("org.theme_") ? { summary: row.page_path?.slice(admin.orgId.length + 1) ?? null } : {}),
     })),
   });
 }
