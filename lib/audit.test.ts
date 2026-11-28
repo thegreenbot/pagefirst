@@ -86,4 +86,15 @@ describe("audit log in Postgres", { skip: url ? false : "set TEST_DATABASE_URL t
   test("a failed write never throws", async () => {
     await assert.doesNotReject(recordAudit({ event: "auth.sign_in", outcome: "bogus" as never }));
   });
+
+  test("an account reads only its own events, newest first, paged by cursor", async () => {
+    for (const [sub, fileId] of [["pager", "f1"], ["pager", "f2"], ["pager", "f3"], ["someone-else", "x"]] as const) {
+      await recordAudit({ event: "page.commit", outcome: "ok", actorSub: sub, fileId, requestId: `r-${fileId}` });
+    }
+    const first = await auditEventsFor("pager", 2);
+    assert.deepEqual(first.map((row) => row.file_id), ["f3", "f2"]);
+    const rest = await auditEventsFor("pager", 2, first[1]!.id);
+    assert.deepEqual(rest.map((row) => row.file_id), ["f1"]);
+    assert.ok(![...first, ...rest].some((row) => row.file_id === "x"));
+  });
 });

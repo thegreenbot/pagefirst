@@ -25,8 +25,8 @@ export function hashSessionId(id: string): string {
 const sealContext = (sub: string, kind: "refresh" | "access") => `google_tokens:${sub}:${kind}`;
 
 /** Stores (or replaces) a user's Google grant. A sign-in without a refresh token keeps the old one. */
-export async function saveGrant(sub: string, email: string | null, grant: GoogleGrant): Promise<void> {
-  await upsertUser(sub, email);
+export async function saveGrant(sub: string, email: string | null, grant: GoogleGrant, hd?: string | null): Promise<void> {
+  await upsertUser(sub, email, hd);
   const access = seal(grant.accessToken, sealContext(sub, "access"));
   const expiresAt = new Date(Date.now() + grant.expiresInSeconds * 1000);
   if (grant.refreshToken) {

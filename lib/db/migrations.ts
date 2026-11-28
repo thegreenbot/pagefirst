@@ -380,4 +380,254 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX sites_org_idx ON sites (org_id);
     `,
   },
+  {
+    id: 14,
+    name: "idempotency keys",
+    sql: `
+      -- (credential, key) -> what the first request did, kept 24 hours (#38).
+      CREATE TABLE idempotency_keys (
+        credential_id   text NOT NULL,
+        key             text NOT NULL,
+        request_hash    text NOT NULL,
+        state           text NOT NULL CHECK (state IN ('in_progress', 'done')),
+        response_status integer,
+        response_body   text,
+        created_at      timestamptz NOT NULL DEFAULT now(),
+        expires_at      timestamptz NOT NULL DEFAULT now() + interval '24 hours',
+        PRIMARY KEY (credential_id, key)
+      );
+      CREATE INDEX idempotency_keys_expires_idx ON idempotency_keys (expires_at);
+    `,
+  },
+  {
+    id: 15,
+    name: "content audit decisions",
+    sql: `
+      -- Append-only history of what a person decided about a flagged page (#50).
+      CREATE TABLE content_audit_decisions (
+        id          bigserial PRIMARY KEY,
+        file_id     text NOT NULL,
+        actor_sub   text,
+        finding     text NOT NULL CHECK (finding IN ('stale', 'expired', 'thin', 'duplicate')),
+        decision    text NOT NULL CHECK (decision IN ('keep', 'update', 'merge', 'rewrite', 'noindex', 'remove')),
+        note        text NOT NULL DEFAULT '',
+        revision_id text,
+        created_at  timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX content_audit_decisions_file_idx ON content_audit_decisions (file_id, created_at DESC);
+    `,
+  },
+  {
+    id: 16,
+    name: "billing: stripe subscriptions per organization",
+    sql: `
+      -- One Stripe customer and at most one live subscription per organization (#47).
+      CREATE TABLE org_billing (
+        org_id                 text PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        stripe_customer_id     text NOT NULL UNIQUE,
+        stripe_subscription_id text UNIQUE,
+        status                 text,
+        plan                   text CHECK (plan IN ('pro', 'team')),
+        billing_interval       text CHECK (billing_interval IN ('month', 'year')),
+        seats                  integer,
+        current_period_end     timestamptz,
+        updated_at             timestamptz NOT NULL DEFAULT now()
+      );
+
+      -- Stripe retries webhooks; each event id is handled once.
+      CREATE TABLE stripe_events (
+        id          text PRIMARY KEY,
+        type        text NOT NULL,
+        received_at timestamptz NOT NULL DEFAULT now()
+      );
+    `,
+  },
+  {
+    id: 17,
+    name: "google workspace domain lock and pending memberships",
+    sql: `
+      -- The Google Workspace domain (hd claim) of the account, recorded at sign-in (#49).
+      ALTER TABLE users ADD COLUMN hd text;
+
+      -- When set, only accounts whose hd equals it can use the organization.
+      ALTER TABLE organizations ADD COLUMN enforced_domain text;
+
+      -- Membership granted before the person has signed in (an invite or a SCIM
+      -- provisioning), claimed when a verified Google email matches.
+      CREATE TABLE org_pending_members (
+        org_id     text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        email      text NOT NULL CHECK (email = lower(email)),
+        role       text NOT NULL CHECK (role IN ('owner', 'admin', 'editor', 'viewer')),
+        source     text NOT NULL DEFAULT 'invite',
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (org_id, email)
+      );
+      CREATE INDEX org_pending_members_email_idx ON org_pending_members (email);
+    `,
+  },
+  {
+    id: 18,
+    name: "scim tokens and provisioned users",
+    sql: `
+      -- Per-organization bearer tokens for an identity provider's SCIM client (#49).
+      CREATE TABLE scim_tokens (
+        id           text PRIMARY KEY,
+        org_id       text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        label        text NOT NULL,
+        token_prefix text NOT NULL,
+        token_hash   text NOT NULL UNIQUE,
+        created_by   text REFERENCES users(sub) ON DELETE SET NULL,
+        created_at   timestamptz NOT NULL DEFAULT now(),
+        last_used_at timestamptz,
+        revoked_at   timestamptz
+      );
+      CREATE INDEX scim_tokens_org_idx ON scim_tokens (org_id);
+
+      -- What the identity provider has told us about each person. Membership itself
+      -- lives in org_members (or org_pending_members until the person signs in).
+      CREATE TABLE scim_users (
+        id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id       text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_name    text NOT NULL CHECK (user_name = lower(user_name)),
+        external_id  text,
+        display_name text,
+        given_name   text,
+        family_name  text,
+        active       boolean NOT NULL DEFAULT true,
+        role         text NOT NULL CHECK (role IN ('owner', 'admin', 'editor', 'viewer')),
+        sub          text REFERENCES users(sub) ON DELETE SET NULL,
+        created_at   timestamptz NOT NULL DEFAULT now(),
+        updated_at   timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (org_id, user_name)
+      );
+      CREATE INDEX scim_users_org_role_idx ON scim_users (org_id, role);
+    `,
+  },
+  {
+    id: 20,
+    name: "bulk jobs",
+    sql: `
+      -- Background jobs run as a credential's owner (#40). Progress lives here, so
+      -- a job survives a process restart and resumes where it stopped.
+      CREATE TABLE jobs (
+        id               text PRIMARY KEY,
+        credential_id    text NOT NULL,
+        sub              text NOT NULL,
+        scopes           text[] NOT NULL,
+        site_folders     text[],
+        kind             text NOT NULL CHECK (kind IN ('commit', 'publish', 'import', 'import_and_publish')),
+        status           text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'done', 'cancelled')),
+        dry_run          boolean NOT NULL DEFAULT false,
+        policy           jsonb NOT NULL DEFAULT '{}',
+        cancel_requested boolean NOT NULL DEFAULT false,
+        created_at       timestamptz NOT NULL DEFAULT now(),
+        started_at       timestamptz,
+        finished_at      timestamptz
+      );
+      CREATE INDEX jobs_credential_idx ON jobs (credential_id, created_at DESC);
+
+      CREATE TABLE job_items (
+        job_id      text NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        idx         integer NOT NULL,
+        file_id     text NOT NULL,
+        params      jsonb NOT NULL DEFAULT '{}',
+        status      text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'ok', 'skipped', 'conflict', 'error', 'cancelled')),
+        code        text,
+        message     text,
+        result      jsonb,
+        attempts    integer NOT NULL DEFAULT 0,
+        started_at  timestamptz,
+        finished_at timestamptz,
+        PRIMARY KEY (job_id, idx)
+      );
+      CREATE INDEX job_items_pending_idx ON job_items (job_id, status, idx);
+    `,
+  },
+  {
+    id: 21,
+    name: "render keys",
+    sql: `
+      -- hash(revision + theme integrity + site config) of what a page was last
+      -- published with (#67): an unchanged key is not rendered or uploaded again.
+      ALTER TABLE site_pages ADD COLUMN render_key text;
+    `,
+  },
+  {
+    id: 22,
+    name: "job webhooks",
+    sql: `
+      -- Completion webhook for a bulk job (#40). The secret is sealed; a job
+      -- queues its delivery when it settles, and attempts back off from there.
+      ALTER TABLE jobs
+        ADD COLUMN webhook_url text,
+        ADD COLUMN webhook_secret text,
+        ADD COLUMN webhook_state text NOT NULL DEFAULT 'none' CHECK (webhook_state IN ('none', 'pending', 'sent', 'failed')),
+        ADD COLUMN webhook_attempts integer NOT NULL DEFAULT 0,
+        ADD COLUMN webhook_next_at timestamptz;
+      CREATE INDEX jobs_webhook_due_idx ON jobs (webhook_next_at) WHERE webhook_state = 'pending';
+    `,
+  },
+  {
+    id: 24,
+    name: "page snapshots",
+    sql: `
+      -- The parsed page at each commit, public publish and import (#29, ADR 0006).
+      -- An import diffs the Doc against the newest of these. Retention keeps the
+      -- newest 20 per Doc and always the newest published one.
+      CREATE TABLE page_snapshots (
+        id bigserial PRIMARY KEY,
+        file_id text NOT NULL,
+        revision_id text NOT NULL,
+        source text NOT NULL CHECK (source IN ('commit', 'publish', 'import')),
+        actor_sub text,
+        content_hash text NOT NULL,
+        doc_modified_time timestamptz,
+        modified_by text,
+        page jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (file_id, revision_id, source)
+      );
+      CREATE INDEX page_snapshots_file_idx ON page_snapshots (file_id, id DESC);
+      CREATE INDEX page_snapshots_published_idx ON page_snapshots (file_id, id DESC) WHERE source = 'publish';
+    `,
+  },
+  {
+    id: 25,
+    name: "job site",
+    sql: `
+      -- The organization site a job publishes to, when the caller chose one (#45).
+      ALTER TABLE jobs ADD COLUMN site_id text;
+    `,
+  },
+  {
+    id: 26,
+    name: "page imports",
+    sql: `
+      -- One row per import of Doc changes (#34, ADR 0006), dry runs included. The
+      -- import id links the Doc revision, the snapshot, the audit entry and a later publish.
+      CREATE TABLE page_imports (
+        id text PRIMARY KEY,
+        file_id text NOT NULL,
+        actor_sub text,
+        policy text NOT NULL,
+        dry_run boolean NOT NULL,
+        from_revision_id text,
+        to_revision_id text NOT NULL,
+        change_count integer NOT NULL,
+        conflict_count integer NOT NULL,
+        adopted integer NOT NULL DEFAULT 0,
+        suggestions integer NOT NULL DEFAULT 0,
+        doc_author text,
+        doc_modified_time timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX page_imports_file_idx ON page_imports (file_id, created_at DESC);
+      ALTER TABLE page_snapshots ADD COLUMN import_id text;
+      ALTER TABLE audit_events
+        ADD COLUMN import_id text,
+        ADD COLUMN doc_author text,
+        ADD COLUMN change_count integer,
+        ADD COLUMN job_id text;
+    `,
+  },
 ];

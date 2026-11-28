@@ -18,7 +18,7 @@ You need accounts and tokens for each provider. Tokens stay in your shell; none 
 1. **Cloudflare**: the publish domain as a zone (note its zone id and your account id), an API token that can edit R2, DNS and Workers (`CLOUDFLARE_API_TOKEN`), and a second token limited to *Object Read & Write* on the instance's bucket (`R2_API_TOKEN`; create the bucket with the first apply, then the token, then apply again, as in [runbooks/site-publishing.md](../../runbooks/site-publishing.md) step 3).
 2. **Vercel**: an API token (`VERCEL_API_TOKEN`) and your fork of Pagefirst with the Vercel GitHub app installed.
 3. **Neon**: an API key (`NEON_API_KEY`).
-4. **Google**: an OAuth client. For a dedicated instance, create it in the customer's own Google Cloud project with the `documents` and `drive.file` scopes. If the project belongs to their Workspace and the app is set to *Internal*, Google needs no verification and the customer gets their own Docs API quota. Otherwise the app needs Google's [verification](https://support.google.com/cloud/answer/13463073).
+4. **Google**: an OAuth client. For a dedicated instance, create it in the customer's own Google Cloud project with the `documents` and `drive.file` scopes. If the project belongs to their Workspace and the app is set to *Internal*, Google needs no verification and the customer gets their own Docs API quota. Otherwise the app needs Google verification: see [docs/google-verification.md](../../docs/google-verification.md).
 
 ## Deploy
 

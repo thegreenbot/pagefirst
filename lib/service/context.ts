@@ -12,9 +12,11 @@ export type Client = "ui" | "api" | "mcp";
 
 /** The Google calls the service makes, so tests and other callers can supply their own. */
 export type GoogleClient = {
-  listDocuments(token: string, folderIds?: readonly string[]): Promise<{ id: string; name: string }[]>;
+  listDocuments(token: string, folderIds?: readonly string[]): Promise<{ id: string; name: string; modifiedTime?: string }[]>;
   /** The folders a file sits directly in. Needed only to enforce a site-folder allow-list. */
   parentsOf?(token: string, fileId: string): Promise<string[]>;
+  /** A Doc's Drive modified time and last editor. Best effort: callers tolerate a failure. */
+  driveMeta?(token: string, fileId: string): Promise<import("@/lib/google/docs").DriveMeta>;
   fetchDocument(token: string, fileId: string): Promise<import("@/lib/page/types").DocsDocument>;
   createDocument(token: string, title: string): Promise<import("@/lib/page/types").DocsDocument>;
   batchUpdate(token: string, fileId: string, requests: object[]): Promise<unknown>;
@@ -31,6 +33,8 @@ export type ServiceContext = {
   /** A Google access token for the actor, or null for sample mode. */
   googleToken: string | null;
   requestId: string;
+  /** An organization site the caller selected (X-Pagefirst-Site) and may publish to. Omitted means their own site. */
+  siteId?: string;
   idempotencyKey?: string;
   /** Granted scopes. Omitted means a full browser session. */
   scopes?: ReadonlySet<Scope>;
@@ -52,6 +56,8 @@ export type ServiceErrorCode =
   | "unsupported"
   | "rate_limited"
   | "upstream_quota"
+  /** The Doc has suggested edits no one has accepted or rejected, so publishing it would drop them. */
+  | "suggestions_pending"
   | "upstream_error";
 
 const STATUS: Record<ServiceErrorCode, number> = {
@@ -63,6 +69,7 @@ const STATUS: Record<ServiceErrorCode, number> = {
   unsupported: 501,
   rate_limited: 429,
   upstream_quota: 429,
+  suggestions_pending: 409,
   upstream_error: 502,
 };
 

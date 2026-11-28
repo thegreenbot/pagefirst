@@ -17,6 +17,7 @@ export type AuditEventName =
   | "page.commit"
   | "page.import"
   | "page.publish"
+  | "job.started"
   | "page.presentation"
   | "site.theme.update"
   | "site.theme.preview"
@@ -30,6 +31,17 @@ export type AuditEventName =
   | "api_key.used"
   | "api_key.revoked"
   | "oauth.authorized"
+  | "billing.checkout"
+  | "billing.portal"
+  | "billing.subscription"
+  | "scim.provision"
+  | "org.scim_token.created"
+  | "org.scim_token.revoked"
+  | "org.domain_lock"
+  | "org.member.invited"
+  | "org.member.role_changed"
+  | "org.member.removed"
+  | "org.invite.cancelled"
   | "job.started"
   | "job.completed"
   | "request.denied";
@@ -51,6 +63,12 @@ export type AuditEvent = {
   ip?: string | null;
   siteId?: string | null;
   pagePath?: string | null;
+  /** The import this event belongs to, its Drive author and how many changes it held (#34). */
+  importId?: string | null;
+  docAuthor?: string | null;
+  changeCount?: number | null;
+  /** The bulk job that ran this call, when one did (#42). */
+  jobId?: string | null;
 };
 
 export const AUDIT_RETENTION_DAYS = 400;
@@ -97,14 +115,19 @@ export async function recordAudit(event: AuditEvent): Promise<void> {
     ipHash: hashIp(event.ip),
     siteId: event.siteId ?? null,
     pagePath: event.pagePath ? event.pagePath.slice(0, 512) : null,
+    importId: event.importId ?? null,
+    docAuthor: event.docAuthor ? event.docAuthor.slice(0, 320) : null,
+    changeCount: event.changeCount ?? null,
+    jobId: event.jobId ?? null,
   };
   console.log(JSON.stringify({ level: "info", type: "audit", ...row }));
   if (!databaseConfigured()) return;
   try {
     await query(
       `INSERT INTO audit_events (request_id, actor_sub, actor_key, client, event, file_id, base_revision_id,
-         result_revision_id, op_count, op_kinds, outcome, status, error_code, idempotency_key, ip_hash, site_id, page_path)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+         result_revision_id, op_count, op_kinds, outcome, status, error_code, idempotency_key, ip_hash, site_id, page_path,
+         import_id, doc_author, change_count, job_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
       [
         row.requestId,
         row.actorSub,
@@ -123,6 +146,10 @@ export async function recordAudit(event: AuditEvent): Promise<void> {
         row.ipHash,
         row.siteId,
         row.pagePath,
+        row.importId,
+        row.docAuthor,
+        row.changeCount,
+        row.jobId,
       ],
     );
   } catch (error) {
@@ -148,15 +175,20 @@ export type AuditRow = {
   error_code: string | null;
   site_id: string | null;
   page_path: string | null;
+  import_id: string | null;
+  doc_author: string | null;
+  change_count: number | null;
+  job_id: string | null;
 };
 
 /** The newest events for one account, for "my activity". */
-export async function auditEventsFor(sub: string, limit = 100): Promise<AuditRow[]> {
+export async function auditEventsFor(sub: string, limit = 100, beforeId?: string): Promise<AuditRow[]> {
   return query<AuditRow>(
     `SELECT id::text, at, event, outcome, status, file_id, base_revision_id, result_revision_id,
-            op_count, op_kinds, client, request_id, error_code, site_id, page_path
-       FROM audit_events WHERE actor_sub = $1 ORDER BY at DESC, id DESC LIMIT $2`,
-    [sub, Math.min(Math.max(limit, 1), 500)],
+            op_count, op_kinds, client, request_id, error_code, site_id, page_path, import_id, doc_author, change_count, job_id
+       FROM audit_events WHERE actor_sub = $1 AND ($3::bigint IS NULL OR id < $3::bigint)
+      ORDER BY at DESC, id DESC LIMIT $2`,
+    [sub, Math.min(Math.max(limit, 1), 500), beforeId ?? null],
   );
 }
 
@@ -164,7 +196,7 @@ export async function auditEventsFor(sub: string, limit = 100): Promise<AuditRow
 export async function auditEventsBetween(from: Date, to: Date, limit = 5000): Promise<(AuditRow & { actor_sub: string | null })[]> {
   return query(
     `SELECT id::text, at, actor_sub, event, outcome, status, file_id, base_revision_id, result_revision_id,
-            op_count, op_kinds, client, request_id, error_code, site_id, page_path
+            op_count, op_kinds, client, request_id, error_code, site_id, page_path, import_id, doc_author, change_count, job_id
        FROM audit_events WHERE at >= $1 AND at < $2 ORDER BY at, id LIMIT $3`,
     [from, to, Math.min(Math.max(limit, 1), 50_000)],
   );

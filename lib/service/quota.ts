@@ -95,6 +95,7 @@ export function withGoogleQuota(google: GoogleClient, subject: string, overrides
     fetchDocument: (token, fileId) => read(() => google.fetchDocument(token, fileId)),
     createDocument: (token, title) => write(() => google.createDocument(token, title)),
     batchUpdate: (token, fileId, requests) => write(() => google.batchUpdate(token, fileId, requests)),
+    ...(google.driveMeta ? { driveMeta: (token: string, fileId: string) => read(() => google.driveMeta!(token, fileId)) } : {}),
     ...(google.parentsOf ? { parentsOf: (token: string, fileId: string) => read(() => google.parentsOf!(token, fileId)) } : {}),
   };
 }

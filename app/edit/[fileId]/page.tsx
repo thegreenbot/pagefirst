@@ -23,16 +23,27 @@ export default async function EditPage({
   const sub = payload.sample ? null : await getSessionSub();
   const context = await renderContextFor(sub, fileId);
   const themes = context.config ? await availableThemes() : [];
+  const drift = payload.changedInDoc;
   return (
-    <PageEditor
-      key={payload.page.fileId}
-      initial={payload.page}
-      sample={payload.sample}
-      theme={context.theme}
-      siteConfig={context.config ? { settings: context.config.settings, tokens: context.config.tokens } : null}
-      presentation={context.presentation}
-      themes={themes}
-      nonce={nonce}
-    />
+    <>
+      <PageEditor
+        key={payload.page.fileId}
+        initial={payload.page}
+        sample={payload.sample}
+        theme={context.theme}
+        siteConfig={
+          context.config
+            ? {
+                settings: context.config.settings,
+                tokens: context.config.tokens,
+              }
+            : null
+        }
+        presentation={context.presentation}
+        themes={themes}
+        nonce={nonce}
+        drift={drift ?? null}
+      />
+    </>
   );
 }
