@@ -117,3 +117,24 @@ export async function clearPkce(): Promise<void> {
   jar.set(VERIFIER_COOKIE, "", options);
   jar.set(STATE_COOKIE, "", options);
 }
+
+const RETURN_COOKIE = "pf_return";
+/** Only the consent screen may be returned to after sign-in, never an arbitrary URL. */
+const RETURN_PATTERN = /^\/oauth\/authorize\?[A-Za-z0-9%&=._~:/+*!'(),-]{1,2000}$/;
+
+export function safeReturnPath(value: string | null | undefined): string | null {
+  return value && RETURN_PATTERN.test(value) ? value : null;
+}
+
+export async function setReturnTo(path: string): Promise<void> {
+  const jar = await cookies();
+  jar.set(RETURN_COOKIE, path, await cookieOptions(600));
+}
+
+/** Reads and clears the post-sign-in destination. */
+export async function takeReturnTo(): Promise<string | null> {
+  const jar = await cookies();
+  const value = safeReturnPath(jar.get(RETURN_COOKIE)?.value);
+  if (jar.get(RETURN_COOKIE)) jar.set(RETURN_COOKIE, "", await cookieOptions(0));
+  return value;
+}

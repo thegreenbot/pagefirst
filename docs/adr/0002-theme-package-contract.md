@@ -132,6 +132,30 @@ A theme declares its fonts in `theme.json` `fonts`: a family, weight and style, 
 - Faces use `font-display: optional`. With the preload the font is normally ready for first paint; when it is not, the page keeps the matched fallback rather than re-laying out. With `swap`, Lighthouse measured a 100 ms main-thread task on swap and broke the TBT budget.
 - The default theme ships Source Serif 4 600 (OFL, `assets/fonts/OFL.txt`) for headings, latin and latin-ext, about 40 KB in all, with Georgia as the matched fallback.
 
+### 13. The theme registry: immutable, countersigned versions (#64)
+
+A theme version is a deterministic `.tgz` of its directory (sorted paths, zero timestamps and owners, fixed modes), so the same sources always give the same bytes. Its integrity is `sha512-<base64>` of those bytes, as in npm lockfiles.
+
+- **Storing.** `theme_versions` holds the archive, manifest, byte-budget measurements, Lighthouse scores from CI, provenance and the registry's countersignature. A database trigger makes every column except `yanked_at` and `advisory` immutable, and refuses deletes and truncation. A yanked version cannot be newly locked; sites already locked to it keep rendering it.
+- **Checking.** Before storing, the registry unpacks the archive with strict limits (regular files only, safe paths, 512 files, 4 MB), loads it through the same loader as a theme directory, and renders every fixture page against the theme's byte budgets. Only then does it countersign `name`, `version` and `integrity` with its Ed25519 key.
+- **Verifying.** A site's lock stores the version and integrity. Every load of a registry version from storage recomputes the archive hash, checks the countersignature against `THEME_REGISTRY_PUBLIC_KEYS`, and checks that the manifest inside names the same theme and version. Failing any of these refuses to render. Only verified packages are cached in memory.
+- **Fallback.** A theme the registry does not list yet falls back to the copy bundled under `themes/`, locked by a `sha256-` snapshot hash as before. Locks made before the registry keep working the same way.
+- **First party only.** v1 ships two themes, `@pagefirst/default` and `@pagefirst/editorial`. The editor lists every available theme and switches with a reload, since the new package is verified on the server.
+- **Publishing.** Versions come only from `theme-publish.yml` on a `theme-<dir>-v<version>` tag. There is no upload secret.
+  - The workflow sends its GitHub Actions OIDC token (audience `pagefirst-theme-registry`). The registry verifies it against GitHub's published keys and requires the trusted repository, a `push` of exactly that version's tag, and that workflow file.
+  - The workflow also makes a Sigstore build-provenance attestation for the archive (keyless, through the same OIDC identity) and verifies it in full with `gh attestation verify` before uploading.
+  - The registry then checks the attestation's DSSE signature against its certificate, that the certificate was issued to the publish workflow at that tag, and that the signed statement names the archive's SHA-256. It stores the bundle with the version so anyone can re-verify it.
+  - The certificate's chain to Sigstore's root and the transparency-log entry are checked in CI, not again by the registry. Doing that server-side would need Sigstore's trust root at runtime. The OIDC token is what authenticates the upload.
+
+### 14. Theme changes are previewed before they apply (#66)
+
+Any theme change (a new theme, an upgrade, tokens, settings, custom CSS, overrides) can run as a dry run first. `resolveUpdate` builds the candidate config with the same validation and re-locking as a real update, without saving it.
+
+- **What is previewed.** Each public publish records the page in `site_pages`. A preview renders up to five of the most recently published pages with the live config and with the candidate, reading each page's content from its Doc.
+- **The report.** For each page: whether the HTML changed, the candidate's byte measurements and any budget it breaks, a preview URL of the candidate render, and errors (for example a Doc that can no longer be read). With `CLOUDFLARE_BROWSER_TOKEN` set, changed pages are also screenshotted by Cloudflare Browser Run and compared pixel by pixel; otherwise the diff is by markup only.
+- **Applying.** `theme_change_previews` keeps the change, the config it was measured against and the candidate. Applying refuses unless the preview is open and the site's config still equals the one it was measured against, so what goes live is exactly what was previewed. It then saves the candidate lock and returns the site's pages; the editor republishes them. Nothing on the public site changes until each page is republished.
+- **Discarding** marks the preview discarded; the site keeps its theme.
+
 ## Consequences
 
 - `render.ts` keeps only orchestration; markup and styles move to `themes/default` (#54).
