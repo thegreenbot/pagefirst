@@ -125,6 +125,7 @@ export async function revokeToken(token: string): Promise<boolean> {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ token }),
       cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
     });
     await res.arrayBuffer().catch(() => undefined);
     return res.ok;
