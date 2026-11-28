@@ -27,6 +27,8 @@ A credential only sees tools it can use: a read-only token lists the read tools 
 | `audit_content`, `list_audit_decisions`, `record_audit_decision` | read / commit | the content audit (#50) |
 | `list_themes`, `get_site_theme`, `preview_theme_change` | read | theme operations (#67) |
 | `update_site_theme`, `republish_site` | publish | republish is a job; poll with `get_job` |
+| `list_site_domains` | read | custom domains and their status (#192) |
+| `add_site_domain`, `check_site_domain`, `remove_site_domain` | publish | add returns the DNS records to create; check until `active`; remove is destructive |
 
 Every tool that writes requires an `idempotencyKey`, so a retry after a dropped connection runs once.
 

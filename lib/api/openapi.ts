@@ -150,6 +150,34 @@ export const openapi = {
     "/site/theme/preview": {
       post: { operationId: "previewSiteTheme", summary: "Dry-run a theme change over a sample of published pages", requestBody: { required: true, content: { "application/json": { schema: { type: "object" } } } }, responses: { "200": { description: "OK" }, default: error } },
     },
+    "/site/domains": {
+      get: { operationId: "listSiteDomains", summary: "The site's custom domains and their status", responses: { "200": { description: "OK" }, default: error } },
+      post: {
+        operationId: "addSiteDomain",
+        summary: "Add a custom domain",
+        description: "Use a subdomain such as www.example.com. The response lists the DNS records to create; call the check operation until the status is active. Needs a paid plan on the hosted service.",
+        parameters: [idempotencyKey],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["hostname"], properties: { hostname: { type: "string" } } } } } },
+        responses: { "200": { description: "OK" }, default: error },
+      },
+    },
+    "/site/domains/{id}": {
+      delete: {
+        operationId: "removeSiteDomain",
+        summary: "Remove a custom domain",
+        description: "Stops serving it first, then releases it. The owner's DNS records are never touched.",
+        parameters: [idempotencyKey, { name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "OK" }, default: error },
+      },
+    },
+    "/site/domains/{id}/check": {
+      post: {
+        operationId: "checkSiteDomain",
+        summary: "Check a custom domain and start serving it once verified",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "OK" }, default: error },
+      },
+    },
     "/site/republish": {
       post: {
         operationId: "republishSite",

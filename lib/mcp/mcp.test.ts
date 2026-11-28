@@ -36,7 +36,7 @@ describe("MCP protocol", () => {
     assert.equal(new Set(TOOLS.map((tool) => tool.name)).size, TOOLS.length);
     for (const tool of TOOLS) {
       assert.ok(tool.description.length > 20, tool.name);
-      if (!tool.annotations.readOnlyHint && tool.name !== "get_job" && tool.name !== "cancel_job") {
+      if (!tool.annotations.readOnlyHint && tool.name !== "get_job" && tool.name !== "cancel_job" && tool.name !== "check_site_domain") {
         assert.ok(tool.inputSchema.required?.includes("idempotencyKey"), `${tool.name} needs idempotencyKey`);
       }
     }
@@ -44,7 +44,7 @@ describe("MCP protocol", () => {
 
   test("annotations: reads are read-only, publishing is destructive", () => {
     const by = (name: string) => TOOLS.find((tool) => tool.name === name)!.annotations;
-    for (const name of ["list_pages", "get_page", "get_audit_events", "audit_content", "list_themes", "get_site_theme", "preview_theme_change"]) {
+    for (const name of ["list_pages", "get_page", "get_audit_events", "audit_content", "list_themes", "get_site_theme", "preview_theme_change", "list_site_domains"]) {
       assert.equal(by(name).readOnlyHint, true, name);
     }
     for (const name of ["publish_page", "republish_site", "start_bulk_job", "import_changes"]) {
