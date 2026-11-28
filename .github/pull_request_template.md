@@ -4,4 +4,4 @@ Feature and agent work targets `develop`. Only `release/vX.Y.Z` and `hotfix/vX.Y
 
 ## Contributor agreement
 
-- [ ] I have read the Pagefirst Contributor License Agreement (CLA.md) and agree to it.
+- [ ] I have signed the Pagefirst Contributor License Agreement (CLA.md): the CLA bot asks on a first pull request, and the maintainer and bots are exempt.
