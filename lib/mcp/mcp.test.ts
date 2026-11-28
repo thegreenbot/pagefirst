@@ -47,7 +47,7 @@ describe("MCP protocol", () => {
     for (const name of ["list_pages", "get_page", "get_audit_events", "audit_content", "list_themes", "get_site_theme", "preview_theme_change"]) {
       assert.equal(by(name).readOnlyHint, true, name);
     }
-    for (const name of ["publish_page", "republish_site", "start_bulk_job"]) {
+    for (const name of ["publish_page", "republish_site", "start_bulk_job", "import_changes"]) {
       assert.equal(by(name).readOnlyHint, false);
       assert.equal(by(name).destructiveHint, true, name);
     }
@@ -61,6 +61,23 @@ describe("MCP protocol", () => {
     assert.ok(names(["pages:read", "pages:commit"]).includes("commit_ops"));
     assert.ok(!names(["pages:read", "pages:commit"]).includes("publish_page"));
     assert.equal(toolsFor(undefined).length, TOOLS.length);
+  });
+
+  test("import_changes needs the import scope, defaults to a dry run on the server, and asks for an idempotency key", () => {
+    const tool = TOOLS.find((candidate) => candidate.name === "import_changes")!;
+    assert.deepEqual(tool.requires, ["pages:import"]);
+    assert.ok(tool.inputSchema.required?.includes("idempotencyKey"));
+    assert.ok(toolsFor(new Set<Scope>(["pages:read", "pages:commit"])).every((t) => t.name !== "import_changes"));
+    const plan = tool.plan({ fileId: "doc1", idempotencyKey: "k1" });
+    assert.equal(plan.path, "/api/v1/pages/doc1/imports");
+    assert.deepEqual(plan.body, {}, "no dryRun sent: the REST default (true) applies");
+    assert.equal(tool.plan({ fileId: "doc1", idempotencyKey: "k1", dryRun: false, policy: "doc-wins" }).body && (tool.plan({ fileId: "doc1", idempotencyKey: "k1", dryRun: false, policy: "doc-wins" }).body as { dryRun: boolean }).dryRun, false);
+  });
+
+  test("list_pages passes the changed filter", () => {
+    const tool = TOOLS.find((candidate) => candidate.name === "list_pages")!;
+    assert.equal(tool.plan({ changed: true }).query?.changed, "true");
+    assert.throws(() => tool.plan({ changed: "yes" }), /changed must be true or false/);
   });
 
   test("tools/list reflects scopes", async () => {
