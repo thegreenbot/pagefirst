@@ -23,6 +23,7 @@ export type JobRow = {
   sub: string;
   scopes: Scope[];
   siteFolders: string[] | null;
+  siteId: string | null;
   kind: JobKind;
   status: JobStatus;
   dryRun: boolean;
@@ -52,6 +53,7 @@ type Row = {
   sub: string;
   scopes: string[];
   site_folders: string[] | null;
+  site_id: string | null;
   kind: JobKind;
   status: JobStatus;
   dry_run: boolean;
@@ -69,6 +71,7 @@ function toJob(row: Row): JobRow {
     sub: row.sub,
     scopes: row.scopes as Scope[],
     siteFolders: row.site_folders,
+    siteId: row.site_id,
     kind: row.kind,
     status: row.status,
     dryRun: row.dry_run,
@@ -85,6 +88,7 @@ export type NewJob = {
   sub: string;
   scopes: readonly Scope[];
   siteFolders?: readonly string[];
+  siteId?: string;
   kind: JobKind;
   dryRun: boolean;
   policy: Record<string, unknown>;
@@ -111,9 +115,9 @@ export async function createJob(input: NewJob): Promise<JobRow> {
       throw new ServiceError("rate_limited", `At most ${MAX_CONCURRENT_JOBS_PER_CREDENTIAL} jobs can run at once for one credential.`, { retryAfterSeconds: 30 });
     }
     const { rows } = await client.query<Row>(
-      `INSERT INTO jobs (id, credential_id, sub, scopes, site_folders, kind, dry_run, policy, webhook_url, webhook_secret)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [id, input.credentialId, input.sub, [...input.scopes], input.siteFolders ? [...input.siteFolders] : null, input.kind, input.dryRun, JSON.stringify(input.policy), input.webhook?.url ?? null, input.webhook ? seal(input.webhook.secret, `job-webhook:${id}`) : null],
+      `INSERT INTO jobs (id, credential_id, sub, scopes, site_folders, kind, dry_run, policy, webhook_url, webhook_secret, site_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [id, input.credentialId, input.sub, [...input.scopes], input.siteFolders ? [...input.siteFolders] : null, input.kind, input.dryRun, JSON.stringify(input.policy), input.webhook?.url ?? null, input.webhook ? seal(input.webhook.secret, `job-webhook:${id}`) : null, input.siteId ?? null],
     );
     // One statement for all items, so a 500-page job is not 500 round trips.
     await client.query(

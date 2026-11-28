@@ -14,7 +14,7 @@ const fileId = { name: "fileId", in: "path", required: true, schema: { type: "st
 
 export const openapi = {
   openapi: "3.1.0",
-  info: { title: "Pagefirst API", version: "1.0.0", description: "Create, edit and publish pages. Bearer credentials only; cookies are never accepted. Each operation has its own per-credential budget a minute (reads 120, create 20, commit 60, publish 6). Every response carries RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset; a 429 adds Retry-After. Google quota is separate: calls to Google are paced per account, and when the wait would be too long the call fails with google_quota, Retry-After set and nothing sent to Google." },
+  info: { title: "Pagefirst API", version: "1.0.0", description: "Create, edit and publish pages. Bearer credentials only; cookies are never accepted. Each operation has its own per-credential budget a minute (reads 120, create 20, commit 60, publish 6). Every response carries RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset; a 429 adds Retry-After. Send X-Pagefirst-Site: <siteId> to publish to, or change the theme of, an organization site you belong to (editor to publish, admin for theme changes); without it your own site is used. Google quota is separate: calls to Google are paced per account, and when the wait would be too long the call fails with google_quota, Retry-After set and nothing sent to Google." },
   servers: [{ url: "/api/v1" }],
   security: secured,
   paths: {

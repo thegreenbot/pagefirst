@@ -593,6 +593,14 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     id: 25,
+    name: "job site",
+    sql: `
+      -- The organization site a job publishes to, when the caller chose one (#45).
+      ALTER TABLE jobs ADD COLUMN site_id text;
+    `,
+  },
+  {
+    id: 26,
     name: "page imports",
     sql: `
       -- One row per import of Doc changes (#34, ADR 0006), dry runs included. The

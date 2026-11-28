@@ -73,6 +73,7 @@ export function POST(request: Request) {
         sub: ctx.actor.sub,
         scopes: [...(ctx.scopes ?? [])],
         siteFolders: ctx.siteFolders,
+        ...(ctx.siteId ? { siteId: ctx.siteId } : {}),
         kind: kind as JobKind,
         dryRun: body.dryRun === true,
         policy: (body.policy as Record<string, unknown> | undefined) ?? {},

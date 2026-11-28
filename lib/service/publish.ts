@@ -5,7 +5,7 @@ import { mayPublishPublicly } from "@/lib/publish/allowlist";
 import { uploadToCloudflare } from "@/lib/publish/cloudflare";
 import { encodeMissing, planImages, recordSiteRenditions, siteHasRenditions } from "@/lib/publish/images";
 import { readPreviewAsset, savePreview, savePreviewAssets } from "@/lib/publish/preview";
-import { publishToOwnSite, siteHostname, sitePublishingEnabled } from "@/lib/publish/sites";
+import { publishToSite, siteHostname, sitePublishingEnabled } from "@/lib/publish/sites";
 import { isCurrentRender, recordRenderKey, renderKey } from "@/lib/site/render-key";
 import { renderContextFor, siteForOwner } from "@/lib/site/theme-config";
 import { recordSitePage } from "@/lib/site/theme-preview";
@@ -60,11 +60,11 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
   }
 
   // Sample pages have no site; signed-in pages render with their site's stored theme (#56).
-  const renderContext = await renderContextFor(payload.sample ? null : ctx.actor.sub, fileId);
+  const renderContext = await renderContextFor(payload.sample ? null : ctx.actor.sub, fileId, ctx.siteId);
   const key = renderKey(payload.page.revisionId, renderContext);
   // Same revision, theme and site config as the last public publish: nothing to render or upload (#67).
   if (wantsPublic && ctx.googleToken && ctx.actor.sub && !payload.sample && sitePublishingEnabled()) {
-    const siteId = await siteForOwner(ctx.actor.sub);
+    const siteId = ctx.siteId ?? (await siteForOwner(ctx.actor.sub));
     if (await isCurrentRender(siteId, fileId, key)) {
       const path = payload.page.path.replace(/^\/+/, "");
       const response: PublishResponse = { ok: true, sample: false, previewPath: `/published/${fileId}`, url: `https://${await siteHostname(siteId)}/${path === "index" ? "" : path}`, unchanged: true };
@@ -106,10 +106,10 @@ export async function publish(ctx: ServiceContext, fileId: string, options: Publ
       return audit("denied", "public:no_account");
     }
     try {
-      const siteId = await siteForOwner(ctx.actor.sub);
+      const siteId = ctx.siteId ?? (await siteForOwner(ctx.actor.sub));
       const uploaded = await siteHasRenditions(siteId, imagePlan.planned.map((image) => image.hash));
       const siteImages = await encodeMissing(imagePlan.planned, (image) => uploaded.has(image.hash));
-      const published = await publishToOwnSite(ctx.actor.sub, payload.page.path, { html, csp, preloads, assets: [...assets, ...siteImages.assets] });
+      const published = await publishToSite(siteId, payload.page.path, { html, csp, preloads, assets: [...assets, ...siteImages.assets] });
       await recordSiteRenditions(published.siteId, siteImages.encoded);
       // Theme change previews sample these pages, and applying one republishes them (#66).
       await recordSitePage(published.siteId, { fileId, path: payload.page.path, revisionId: payload.page.revisionId });
