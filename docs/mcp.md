@@ -17,7 +17,8 @@ A credential only sees tools it can use: a read-only token lists the read tools 
 
 | Tool | Scope | Notes |
 | --- | --- | --- |
-| `list_pages`, `get_page` | read | `get_page` returns the `revisionId` to pin |
+| `list_pages`, `get_page` | read | `get_page` returns the `revisionId` to pin; `list_pages` takes `changed` |
+| `import_changes` | import | dry run by default; optional `publish` |
 | `create_page` | commit | `idempotencyKey` |
 | `commit_ops` | commit | `baseRevisionId`, `idempotencyKey`; stale base is `revision_conflict` |
 | `publish_page` | publish | pinned `revisionId`; annotated destructive and open-world |
@@ -29,7 +30,7 @@ A credential only sees tools it can use: a read-only token lists the read tools 
 
 Every tool that writes requires an `idempotencyKey`, so a retry after a dropped connection runs once.
 
-Not yet: `import_changes` (waiting on the import service, #42) and the `changed` filter on `list_pages` (#30). Bulk jobs already accept the `import` kinds and report them as unsupported until then.
+`import_changes` imports edits made directly in Google Docs (ADR 0006): `dryRun` defaults to true and returns the change list, conflicts, pending suggestions (reported, not imported) and who last edited the Doc; `dryRun: false` makes the Doc the new base; `publish` imports and then publishes exactly the revision imported. `list_pages` with `changed: true` finds the pages to import. For many pages, `start_bulk_job` with `kind: "import"` and `changed: true` runs the audit-team flow: a dry run, a review, then the same job with each page's reviewed `revisionId`, which skips any Doc that moved since.
 
 ## Safety
 
